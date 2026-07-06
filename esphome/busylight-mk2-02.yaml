@@ -28,8 +28,8 @@
 substitutions:
   # Naming & Identification
   name: busy-light-mk2-2
-  friendly_name: "Busy Light 2 Mk2"
-  ui_comment: "Busy Light 2 MK2"
+  friendly_name: "Busy Light 2"
+  ui_comment: "Busy Light 2 Kichen"
 
   # Network Configuration (Static IP)
   ip: 192.168.2.53

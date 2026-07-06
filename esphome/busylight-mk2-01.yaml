@@ -28,8 +28,8 @@
 substitutions:
   # Naming & Identification
   name: busy-light-mk2-1
-  friendly_name: "Busy Light 1 Mk2"
-  ui_comment: "Busy Light 1 MK2 and Logitech Z-5500 Speaker Remote"
+  friendly_name: "Busy Light 1"
+  ui_comment: "Busy Light 1 Living Room and Logitech Z-5500 Speaker Remote"
 
   # Network Configuration (Static IP)
   ip: 192.168.2.51

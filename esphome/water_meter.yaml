@@ -30,6 +30,7 @@ substitutions:
   tz_offset_min: "0"
   meter_1_prefix: "Meter 1"
   meter_2_prefix: "Meter 2"
+  meter_3_prefix: "Meter 3"
 
   
 ##############################################################
@@ -90,14 +91,23 @@ time:
 #     refresh: 0d
 
 
-# EverBlu Meter Component
-
-
+# # EverBlu Meter Component
+# # Using the 'develop' branch (radio-global calibration + device-level entities).
 external_components:
   - source:
-      type: local
-      path: ./external_components/
+      type: git
+      url: https://github.com/genestealer/everblu-meters-esp8266-improved
+      ref: develop
+      path: ESPHOME-release
     components: [ everblu_meter ]
+    refresh: 0s
+
+# Local copy (previous source) - re-enable if developing the component locally:
+# external_components:
+#   - source:
+#       type: local
+#       path: ./external_components/
+#     components: [ everblu_meter ]
 
 
 # external_components:
@@ -126,12 +136,26 @@ spi:
   miso_pin: GPIO12
 
 
+##############################################################
+# Home Assistant Sub-Devices
+# Each meter appears as its own device in Home Assistant. Per-meter
+# entities reference these via `device_id:`. Shared-radio entities
+# (CC1101 state/connected, firmware, frequency calibration) are left
+# without a device_id so they stay on the main ${friendly_name} node.
+##############################################################
+esphome:
+  devices:
+    - id: water_meter_device_1
+      name: "${meter_1_prefix}"
+    - id: water_meter_device_2
+      name: "${meter_2_prefix}"
+    - id: water_meter_device_3
+      name: "${meter_3_prefix}"
+
 
 everblu_meter:
   - id: cold_water_meter
-    meter_code: 20-0257750
-    # meter_year: 20
-    # meter_serial: 257750
+    meter_code: 20-0257750-100
     meter_type: water
     debug_cc1101: true
     spi_id: main_bus
@@ -152,75 +176,100 @@ everblu_meter:
 
     request_reading_button:
       name: "${meter_1_prefix} Read Meter Now"
-    frequency_scan_button:
-      name: "${meter_1_prefix} Scan Frequency"
+      device_id: water_meter_device_1
+    # Frequency calibration is a property of the shared CC1101 radio, not the meter.
+    # Declare these buttons/sensors on ONE meter only (here, the first). They are
+    # global: any meter's reads/scans update this single set of entities.
+
+    deep_scan_button:
+      name: "Radio Deep Frequency Scan"
     reset_frequency_button:
-      name: "${meter_1_prefix} Reset Frequency Offset"
+      name: "Radio Reset Frequency Offset"
 
     volume:
       name: "${meter_1_prefix} Water Volume"
+      device_id: water_meter_device_1
     counter:
       name: "${meter_1_prefix} Read Counter"
+      device_id: water_meter_device_1
     battery:
       name: "${meter_1_prefix} Meter Battery"
+      device_id: water_meter_device_1
     rssi:
       name: "${meter_1_prefix} Meter RSSI"
+      device_id: water_meter_device_1
     rssi_percentage:
       name: "${meter_1_prefix} RSSI Percentage"
+      device_id: water_meter_device_1
     lqi:
       name: "${meter_1_prefix} LQI"
+      device_id: water_meter_device_1
     lqi_percentage:
       name: "${meter_1_prefix} LQI Percentage"
+      device_id: water_meter_device_1
 
     total_attempts:
       name: "${meter_1_prefix} Total Read Attempts"
+      device_id: water_meter_device_1
     successful_reads:
       name: "${meter_1_prefix} Successful Reads"
+      device_id: water_meter_device_1
     failed_reads:
       name: "${meter_1_prefix} Failed Reads"
+      device_id: water_meter_device_1
+    # Global (per-radio) calibration sensors - declared on this meter only.
     frequency_offset:
-      name: "${meter_1_prefix} Frequency Offset"
+      name: "Radio Frequency Offset"
     tuned_frequency:
-      name: "${meter_1_prefix} Tuned Frequency (MHz)"
+      name: "Radio Tuned Frequency (MHz)"
     frequency_estimate:
-      name: "${meter_1_prefix} Frequency Estimate"
+      name: "Radio Frequency Estimate"
 
     meter_serial_sensor:
       name: "${meter_1_prefix} Meter Serial"
+      device_id: water_meter_device_1
     meter_year_sensor:
       name: "${meter_1_prefix} Meter Year"
+      device_id: water_meter_device_1
     reading_schedule_sensor:
       name: "${meter_1_prefix} Reading Schedule"
+      device_id: water_meter_device_1
     reading_time_utc_sensor:
       name: "${meter_1_prefix} Reading Time (UTC)"
+      device_id: water_meter_device_1
 
     time_start:
       name: "${meter_1_prefix} Reading Start Time"
+      device_id: water_meter_device_1
     time_end:
       name: "${meter_1_prefix} Reading End Time"
+      device_id: water_meter_device_1
 
     status:
       name: "${meter_1_prefix} Meter Status"
+      device_id: water_meter_device_1
     error:
       name: "${meter_1_prefix} Last Error"
+      device_id: water_meter_device_1
     radio_state:
-      name: "${meter_1_prefix} CC1101 State"
+      name: "CC1101 State"            # device-level (shared radio) - stays on main node
     timestamp:
       name: "${meter_1_prefix} Last Reading Time"
+      device_id: water_meter_device_1
     history_json:
       name: "${meter_1_prefix} Meter History (JSON)"
+      device_id: water_meter_device_1
     firmware_version:
-      name: "${meter_1_prefix} Firmware Version"
+      name: "Firmware Version"        # device-level (one firmware) - stays on main node
 
     active_reading:
       name: "${meter_1_prefix} Reading Active"
+      device_id: water_meter_device_1
     radio_connected:
-      name: "${meter_1_prefix} CC1101 Connected"
+      name: "CC1101 Connected"        # device-level (shared radio) - stays on main node
 
-  - id: hot_water_meter
-    meter_code: 20-0259301
-    # meter_year: 20
-    # meter_serial: 0259301
+  - id: water_meter_2
+    meter_code: 20-0259301-100
     meter_type: water
     debug_cc1101: true
     spi_id: main_bus
@@ -240,70 +289,176 @@ everblu_meter:
 
     request_reading_button:
       name: "${meter_2_prefix} Read Meter Now"
-    frequency_scan_button:
-      name: "${meter_2_prefix} Scan Frequency"
-    reset_frequency_button:
-      name: "${meter_2_prefix} Reset Frequency Offset"
+      device_id: water_meter_device_2
+    # Frequency calibration buttons/sensors are radio-global and declared on the
+    # first meter only (see cold_water_meter above); they act on the shared CC1101.
 
     volume:
       name: "${meter_2_prefix} Water Volume"
+      device_id: water_meter_device_2
     counter:
       name: "${meter_2_prefix} Read Counter"
+      device_id: water_meter_device_2
     battery:
       name: "${meter_2_prefix} Meter Battery"
+      device_id: water_meter_device_2
     rssi:
       name: "${meter_2_prefix} Meter RSSI"
+      device_id: water_meter_device_2
     rssi_percentage:
       name: "${meter_2_prefix} RSSI Percentage"
+      device_id: water_meter_device_2
     lqi:
       name: "${meter_2_prefix} LQI"
+      device_id: water_meter_device_2
     lqi_percentage:
       name: "${meter_2_prefix} LQI Percentage"
+      device_id: water_meter_device_2
 
     total_attempts:
       name: "${meter_2_prefix} Total Read Attempts"
+      device_id: water_meter_device_2
     successful_reads:
       name: "${meter_2_prefix} Successful Reads"
+      device_id: water_meter_device_2
     failed_reads:
       name: "${meter_2_prefix} Failed Reads"
-    frequency_offset:
-      name: "${meter_2_prefix} Frequency Offset"
-    tuned_frequency:
-      name: "${meter_2_prefix} Tuned Frequency (MHz)"
-    frequency_estimate:
-      name: "${meter_2_prefix} Frequency Estimate"
+      device_id: water_meter_device_2
 
     meter_serial_sensor:
       name: "${meter_2_prefix} Meter Serial"
+      device_id: water_meter_device_2
     meter_year_sensor:
       name: "${meter_2_prefix} Meter Year"
+      device_id: water_meter_device_2
     reading_schedule_sensor:
       name: "${meter_2_prefix} Reading Schedule"
+      device_id: water_meter_device_2
     reading_time_utc_sensor:
       name: "${meter_2_prefix} Reading Time (UTC)"
+      device_id: water_meter_device_2
 
     time_start:
       name: "${meter_2_prefix} Reading Start Time"
+      device_id: water_meter_device_2
     time_end:
       name: "${meter_2_prefix} Reading End Time"
+      device_id: water_meter_device_2
 
     status:
       name: "${meter_2_prefix} Meter Status"
+      device_id: water_meter_device_2
     error:
       name: "${meter_2_prefix} Last Error"
-    radio_state:
-      name: "${meter_2_prefix} CC1101 State"
+      device_id: water_meter_device_2
     timestamp:
       name: "${meter_2_prefix} Last Reading Time"
+      device_id: water_meter_device_2
     history_json:
       name: "${meter_2_prefix} Meter History (JSON)"
-    firmware_version:
-      name: "${meter_2_prefix} Firmware Version"
+      device_id: water_meter_device_2
 
     active_reading:
       name: "${meter_2_prefix} Reading Active"
-    radio_connected:
-      name: "${meter_2_prefix} CC1101 Connected"
+      device_id: water_meter_device_2
+    # CC1101 State, CC1101 Connected and Firmware Version are device-level (one
+    # shared radio / firmware) and are declared on the first meter only above.
+
+  - id: water_meter_3
+    meter_code: 20-0259298-022
+    meter_type: water
+    debug_cc1101: true
+    spi_id: main_bus
+    cs_pin:
+      number: ${cc1101_cs}
+      allow_other_uses: true
+    gdo0_pin:
+      number: ${cc1101_gdo0}
+      allow_other_uses: true
+    gdo2_pin:
+      number: ${cc1101_gdo2}
+      allow_other_uses: true
+    time_id: homeassistant_time
+    timezone_offset: ${tz_offset_min}
+    read_hour: 11
+    read_minute: 50
+
+    request_reading_button:
+      name: "${meter_3_prefix} Read Meter Now"
+      device_id: water_meter_device_3
+    # Frequency calibration buttons/sensors are radio-global and declared on the
+    # first meter only (see cold_water_meter above); they act on the shared CC1101.
+
+    volume:
+      name: "${meter_3_prefix} Water Volume"
+      device_id: water_meter_device_3
+    counter:
+      name: "${meter_3_prefix} Read Counter"
+      device_id: water_meter_device_3
+    battery:
+      name: "${meter_3_prefix} Meter Battery"
+      device_id: water_meter_device_3
+    rssi:
+      name: "${meter_3_prefix} Meter RSSI"
+      device_id: water_meter_device_3
+    rssi_percentage:
+      name: "${meter_3_prefix} RSSI Percentage"
+      device_id: water_meter_device_3
+    lqi:
+      name: "${meter_3_prefix} LQI"
+      device_id: water_meter_device_3
+    lqi_percentage:
+      name: "${meter_3_prefix} LQI Percentage"
+      device_id: water_meter_device_3
+
+    total_attempts:
+      name: "${meter_3_prefix} Total Read Attempts"
+      device_id: water_meter_device_3
+    successful_reads:
+      name: "${meter_3_prefix} Successful Reads"
+      device_id: water_meter_device_3
+    failed_reads:
+      name: "${meter_3_prefix} Failed Reads"
+      device_id: water_meter_device_3
+
+    meter_serial_sensor:
+      name: "${meter_3_prefix} Meter Serial"
+      device_id: water_meter_device_3
+    meter_year_sensor:
+      name: "${meter_3_prefix} Meter Year"
+      device_id: water_meter_device_3
+    reading_schedule_sensor:
+      name: "${meter_3_prefix} Reading Schedule"
+      device_id: water_meter_device_3
+    reading_time_utc_sensor:
+      name: "${meter_3_prefix} Reading Time (UTC)"
+      device_id: water_meter_device_3
+
+    time_start:
+      name: "${meter_3_prefix} Reading Start Time"
+      device_id: water_meter_device_3
+    time_end:
+      name: "${meter_3_prefix} Reading End Time"
+      device_id: water_meter_device_3
+
+    status:
+      name: "${meter_3_prefix} Meter Status"
+      device_id: water_meter_device_3
+    error:
+      name: "${meter_3_prefix} Last Error"
+      device_id: water_meter_device_3
+    timestamp:
+      name: "${meter_3_prefix} Last Reading Time"
+      device_id: water_meter_device_3
+    history_json:
+      name: "${meter_3_prefix} Meter History (JSON)"
+      device_id: water_meter_device_3
+
+    active_reading:
+      name: "${meter_3_prefix} Reading Active"
+      device_id: water_meter_device_3
+    # CC1101 State, CC1101 Connected and Firmware Version are device-level (one
+    # shared radio / firmware) and are declared on the first meter only above.
 
 
 
