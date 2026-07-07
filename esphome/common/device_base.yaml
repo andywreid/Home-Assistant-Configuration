@@ -82,3 +82,11 @@ sensor:
 #     name: "ESPHome Version"
 #     entity_category: "diagnostic"
 
+
+
+###################################
+# mDNS (Multicast DNS)
+# Disabled as seprate VLANs are used for IoT devices and mDNS cannot cross VLANs without a mDNS repeater.
+###################################
+mdns:
+  disabled: true
