@@ -12,8 +12,8 @@ substitutions:
   subnet: 255.255.255.0
 
   # Status LED (ESP8266 Onboard LED)
-  status_led: LED_RED  # GPIO0 (ESP8266)
-  # status_led: GPIO0  # GPIO0 (ESP8266)
+  # status_led: LED_RED  # GPIO0 (ESP8266)
+  status_led: GPIO0  # GPIO0 (ESP8266)
   status_led_inverted: "true"
 
   # # Debug Logging
@@ -40,6 +40,11 @@ esp8266:
   board: huzzah
   framework:
     version: recommended  # Arduino core (explicit)
+
+# esp32:
+#   board: esp32dev
+#   framework:
+#     type: arduino  # Required since ESPHome 2026.1.0 (everblu_meter needs Arduino.h)
 
 
 ##############################################################
@@ -97,7 +102,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/genestealer/everblu-meters-esp8266-improved
-      ref: develop
+      ref: main
       path: ESPHOME-release
     components: [ everblu_meter ]
     refresh: 0s

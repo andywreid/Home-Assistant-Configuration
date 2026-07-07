@@ -63,10 +63,13 @@ packages:
 # Sub-Devices (group IR controls under a separate device)
 ##############################################################
 esphome:
-  # Sub-device for Dyson AM07 IR remote controls
+  # Sub-device for Dyson AM07 IR remote controls (IR hardware removed)
   devices:
-    - id: dyson_remote
-      name: "Dyson AM07 Remote"
+    # - id: dyson_remote
+    #   name: "Dyson AM07 Remote"
+    # Sub-device for the OLED display
+    - id: oled_display_device
+      name: "OLED Display"
   # Ensure the config compiles on versions that support sub-devices
   min_version: "2025.10.0"
 
@@ -101,16 +104,405 @@ light:
     rgb_order: GRB
 
 # I2C Bus Configuration
+# M5Stack Atom Grove Port A: SDA = GPIO26, SCL = GPIO32
 i2c:
-  sda: 25
-  scl: 21
-  #scan: true
-  #frequency: 200kHz
+  sda: 26
+  scl: 32
+  scan: true
+  # Fast-mode I2C so the display can refresh quickly for smooth animation.
+  frequency: 400kHz
 
-# Infrared Transmitter Configuration
-remote_transmitter:
-  pin: 26 # IR transmitter output
-  carrier_duty_percent: 50%
+##############################################################
+# OLED Display - M5Stack OLED Unit 1.3" (U119)
+# https://shop.m5stack.com/products/oled-unit-1-3-128-64-display
+# 128x64 pixels, SH1107 controller, I2C address 0x3C, on Port A (I2C)
+# https://esphome.io/components/display/ssd1306/
+#
+# NOTE: This M5Stack SH1107 128x64 panel renders shifted/half-corrupted
+# unless flip_x/flip_y are disabled and offset_y is set to 96.
+# See: https://github.com/esphome/issues/issues/2913
+##############################################################
+font:
+  # Spleen: a pixel-perfect monospaced bitmap font, very readable on 1-bit OLEDs.
+  # Loaded as a .bdf at build time. Sizes: 5x8, 6x12, 8x16, 12x24 (pick by filename).
+  # https://github.com/fcambus/spleen
+  - file:
+      type: web
+      url: "https://raw.githubusercontent.com/fcambus/spleen/2.1.0/spleen-6x12.bdf"
+    id: font_roboto
+    size: 12
+  # Material Design Icons (downloaded & cached at build time) for the status icon.
+  # Codepoints from https://pictogrammers.com/library/mdi/
+  - file:
+      type: web
+      url: "https://github.com/Templarian/MaterialDesign-Webfont/raw/v7.4.47/fonts/materialdesignicons-webfont.ttf"
+    id: font_mdi
+    size: 28
+    glyphs:
+      - "\U000F032A"  # mdi:leaf  -> off-peak (cheap/green)
+      - "\U000F0241"  # mdi:flash -> peak (expensive)
+
+# Text field exposed to Home Assistant so you can set the OLED message.
+text:
+  - platform: template
+    device_id: oled_display_device
+    name: "OLED Message"
+    id: oled_message
+    optimistic: true
+    mode: text
+    min_length: 0
+    max_length: 255
+    restore_value: true
+    initial_value: "Busy Light 2"
+    set_action:
+      - globals.set:
+          id: display_message
+          value: !lambda "return x;"
+
+##############################################################
+# Octopus Energy off-peak data (imported from Home Assistant)
+# Reads the off-peak binary sensor state plus the current/next
+# window start & end times (ISO strings) for display below.
+##############################################################
+binary_sensor:
+  - platform: homeassistant
+    id: octopus_off_peak
+    entity_id: binary_sensor.octopus_energy_electricity_22l3177538_1413225971001_off_peak
+    # Busy Light -> green when off-peak, red when peak (respects presence)
+    on_state:
+      - script.execute: update_busy_light
+  # Kitchen presence -> used to blank the OLED when empty (burn-in protection)
+  - platform: homeassistant
+    id: kitchen_occupancy
+    entity_id: binary_sensor.kitchen_motion_sensor_1_occupancy
+    on_state:
+      - script.execute: update_busy_light
+  - platform: homeassistant
+    id: kitchen_presence
+    entity_id: binary_sensor.kitchen_motion_detector_presence
+    on_state:
+      - script.execute: update_busy_light
+
+text_sensor:
+  - platform: homeassistant
+    id: op_current_start
+    entity_id: binary_sensor.octopus_energy_electricity_22l3177538_1413225971001_off_peak
+    attribute: current_start
+  - platform: homeassistant
+    id: op_current_end
+    entity_id: binary_sensor.octopus_energy_electricity_22l3177538_1413225971001_off_peak
+    attribute: current_end
+  - platform: homeassistant
+    id: op_next_start
+    entity_id: binary_sensor.octopus_energy_electricity_22l3177538_1413225971001_off_peak
+    attribute: next_start
+  - platform: homeassistant
+    id: op_next_end
+    entity_id: binary_sensor.octopus_energy_electricity_22l3177538_1413225971001_off_peak
+    attribute: next_end
+  # Eaton xStorage current operation mode (select entity -> string state)
+  - platform: homeassistant
+    id: house_mode
+    entity_id: select.eaton_xstorage_home_current_operation_mode
+
+##############################################################
+# Battery / charging sensors (imported from Home Assistant)
+# Used by the second OLED screen to show car & house battery
+# charge levels and charging power.
+##############################################################
+sensor:
+  - platform: homeassistant
+    id: car_battery
+    entity_id: sensor.skoda_enyaq_battery_percentage
+  - platform: homeassistant
+    id: car_charge_power
+    entity_id: sensor.skoda_enyaq_charging_power
+  - platform: homeassistant
+    id: house_battery
+    entity_id: sensor.eaton_xstorage_home_battery_state_of_charge
+  - platform: homeassistant
+    id: house_power
+    entity_id: sensor.db2_energy_meters_power_a
+  - platform: homeassistant
+    id: solar_power
+    entity_id: sensor.solar_panels_current_power_production_watts
+  - platform: homeassistant
+    id: grid_power
+    entity_id: sensor.solar_panels_current_net_power_consumption_watts
+
+##############################################################
+# Display burn-in protection - periodic colour inversion
+# The switch enables/disables the automatic inversion; the
+# interval flips the invert state while the switch is on.
+##############################################################
+switch:
+  - platform: template
+    device_id: oled_display_device
+    name: "Display Auto-Invert"
+    id: display_auto_invert
+    icon: "mdi:invert-colors"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_off_action:
+      # Return to a normal (non-inverted) image when disabled
+      - globals.set:
+          id: display_invert
+          value: "false"
+  # Manual invert - directly flips the image. State tracks the invert global,
+  # so it stays in sync even when the auto-invert interval toggles it.
+  - platform: template
+    device_id: oled_display_device
+    name: "Display Invert"
+    id: display_invert_switch
+    icon: "mdi:invert-colors"
+    lambda: |-
+      return id(display_invert);
+    turn_on_action:
+      - globals.set:
+          id: display_invert
+          value: "true"
+    turn_off_action:
+      - globals.set:
+          id: display_invert
+          value: "false"
+
+##############################################################
+# Busy Light update script
+# Central place that decides the LED colour/state so it can be
+# triggered immediately from presence or off-peak changes (and
+# as a periodic fallback from the interval below).
+##############################################################
+script:
+  - id: update_busy_light
+    then:
+      - lambda: |-
+          bool present = id(kitchen_occupancy).state || id(kitchen_presence).state;
+          if (!present) {
+            id(busy_light).turn_off().perform();
+            return;
+          }
+          auto call = id(busy_light).turn_on();
+          call.set_brightness(0.5f);
+          if (!id(octopus_off_peak).has_state()) {
+            call.set_rgb(0.0f, 0.0f, 1.0f);   // blue  = no data from HA yet
+          } else if (id(octopus_off_peak).state) {
+            call.set_rgb(0.0f, 1.0f, 0.0f);   // green = off-peak
+          } else {
+            call.set_rgb(1.0f, 0.0f, 0.0f);   // red   = peak
+          }
+          call.perform();
+
+interval:
+  - interval: 1h
+    then:
+      - if:
+          condition:
+            switch.is_on: display_auto_invert
+          then:
+            - globals.set:
+                id: display_invert
+                value: !lambda "return !id(display_invert);"
+  # Rotate OLED pages. Base tick is 5s: page 1 (Octopus) shows for one tick,
+  # page 2 (power) for two ticks - so page 1 is displayed half as long.
+  - interval: 5s
+    then:
+      - lambda: |-
+          switch (id(page_step)) {
+            case 0: id(oled_display).show_page(id(page_octopus)); break;
+            case 1: id(oled_display).show_page(id(page_batteries)); break;
+            default: break;  // case 2: stay on page 2 for a second tick
+          }
+          id(page_step) = (id(page_step) + 1) % 3;
+  # Keep the Busy Light in sync with the off-peak state and display blanking.
+  # Light turns off when the kitchen is empty (matches OLED blanking) and turns
+  # back on at 50% brightness when someone is present. Blue = no HA data yet.
+  # Presence / off-peak changes trigger the script directly; this is a fallback.
+  - interval: 60s
+    then:
+      - script.execute: update_busy_light
+
+display:
+  - platform: ssd1306_i2c
+    model: "SH1107 128X64"
+    address: 0x3C
+    id: oled_display
+    rotation: 0°
+    # Refresh fast enough for the battery flow animation to look smooth.
+    update_interval: 100ms
+    # M5Stack 1.3" SH1107 panel needs these to avoid the shifted/half-corrupted
+    # image. See: https://github.com/esphome/issues/issues/2913
+    flip_x: false
+    flip_y: false
+    offset_x: 0
+    offset_y: 96
+    # Panel is mounted portrait: at rotation 0° the area is 64 wide x 128 tall.
+    # Two pages are rotated by the interval below:
+    #  1) Octopus off-peak status + current/next window times.
+    #  2) Car & house battery charge levels and charging power.
+    pages:
+      # ---- Page 1: Octopus off-peak status ----
+      - id: page_octopus
+        lambda: |-
+          // Burn-in protection: keep the screen blank while the kitchen is empty.
+          // ESPHome clears the buffer before each render, so returning here leaves
+          // every pixel off (no light = no burn-in).
+          if (!id(kitchen_occupancy).state && !id(kitchen_presence).state) {
+            return;
+          }
+
+          // Burn-in protection: periodically invert. When inverted, fill the
+          // background and draw everything in the "off" colour (fg).
+          auto fg = id(display_invert) ? COLOR_OFF : COLOR_ON;
+          if (id(display_invert)) {
+            it.fill(COLOR_ON);
+          }
+
+          // Format an ISO8601 datetime (e.g. 2026-07-06T15:00:00+01:00) as "3:00PM".
+          auto fmt = [](const std::string &iso) -> std::string {
+            if (iso.length() < 16) return "--";
+            int h = atoi(iso.substr(11, 2).c_str());
+            int m = atoi(iso.substr(14, 2).c_str());
+            const char *ap = (h < 12) ? "AM" : "PM";
+            int h12 = h % 12;
+            if (h12 == 0) h12 = 12;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%d:%02d%s", h12, m, ap);
+            return std::string(buf);
+          };
+
+          // Status icon at the top (leaf = off-peak, flash = peak), centred.
+          it.printf(32, 0, id(font_mdi), fg, TextAlign::TOP_CENTER,
+                    id(octopus_off_peak).state ? "\U000F032A" : "\U000F0241");
+
+          // Status word
+          it.printf(32, 30, id(font_roboto), fg, TextAlign::TOP_CENTER,
+                    "%s", id(octopus_off_peak).state ? "OFF-PEAK" : "PEAK");
+
+          // Current window (only populated while an off-peak window is active)
+          it.printf(0, 46, id(font_roboto), fg, "Now:");
+          if (id(op_current_start).has_state() && id(op_current_start).state.length() >= 16) {
+            it.printf(0, 60, id(font_roboto), fg, "%s", fmt(id(op_current_start).state).c_str());
+            it.printf(0, 73, id(font_roboto), fg, "-%s", fmt(id(op_current_end).state).c_str());
+          } else {
+            it.printf(0, 60, id(font_roboto), fg, "--");
+          }
+
+          // Next window
+          it.printf(0, 88, id(font_roboto), fg, "Next:");
+          it.printf(0, 102, id(font_roboto), fg, "%s", fmt(id(op_next_start).state).c_str());
+          it.printf(0, 115, id(font_roboto), fg, "-%s", fmt(id(op_next_end).state).c_str());
+
+      # ---- Page 2: Car, house, solar & grid ----
+      - id: page_batteries
+        lambda: |-
+          // Burn-in protection: keep the screen blank while the kitchen is empty.
+          if (!id(kitchen_occupancy).state && !id(kitchen_presence).state) {
+            return;
+          }
+
+          // Burn-in protection: periodically invert.
+          auto fg = id(display_invert) ? COLOR_OFF : COLOR_ON;
+          if (id(display_invert)) {
+            it.fill(COLOR_ON);
+          }
+
+          // Draw a horizontal battery icon filled to pct (0-100). The bar always
+          // shows the true level; dir animates flow across the fill:
+          //   +1 charging   -> pulses sweep left->right (energy flowing in)
+          //   -1 discharging -> pulses sweep right->left (energy flowing out)
+          //    0 idle        -> static solid fill
+          // (1-bit panel, so "pulses" are moving dark gaps rather than true grey.)
+          auto draw_batt = [&](int x, int y, float pct, int dir) {
+            const int w = 40, h = 12, term_w = 3, term_h = 6;
+            it.rectangle(x, y, w, h, fg);                                   // body
+            it.filled_rectangle(x + w, y + (h - term_h) / 2, term_w, term_h, fg); // terminal
+            int ix = x + 2, iy = y + 2, iw = w - 4, ih = h - 4;
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            int fillw = (int)(iw * pct / 100.0f + 0.5f);
+            if (fillw > 0) it.filled_rectangle(ix, iy, fillw, ih, fg);      // true level
+            // Flow animation: a scrolling barber-pole of gaps over the fill.
+            if (dir != 0 && fillw > 2) {
+              auto bg = id(display_invert) ? COLOR_ON : COLOR_OFF;
+              const int period = 6;   // spacing between pulses (px)
+              const int pw = 2;       // pulse (gap) width (px)
+              int t = millis() / 100; // advance ~1px every 100ms
+              int phase = (((dir < 0 ? -t : t) % period) + period) % period;
+              for (int gx = -period; gx <= fillw; gx += period) {
+                int start = ix + gx + phase;
+                int end = start + pw;
+                if (start < ix) start = ix;
+                if (end > ix + fillw) end = ix + fillw;
+                if (end > start) it.filled_rectangle(start, iy, end - start, ih, bg);
+              }
+            }
+          };
+
+          // ---- Grid (net consumption): +ve import, -ve export ----
+          if (id(grid_power).has_state()) {
+            float g = id(grid_power).state;
+            if (g > 10.0f) {
+              it.printf(0, 0, id(font_roboto), fg, "Grd I %.0fW", g);
+            } else if (g < -10.0f) {
+              it.printf(0, 0, id(font_roboto), fg, "Grd E %.0fW", -g);
+            } else {
+              it.printf(0, 0, id(font_roboto), fg, "Grd %.0fW", fabs(g));
+            }
+          } else {
+            it.printf(0, 0, id(font_roboto), fg, "Grd --");
+          }
+
+          // ---- Solar production ----
+          if (id(solar_power).has_state()) {
+            it.printf(0, 13, id(font_roboto), fg, "Sol %.0fW", id(solar_power).state);
+          } else {
+            it.printf(0, 13, id(font_roboto), fg, "Sol --");
+          }
+
+          // ---- House battery (Eaton xStorage) ----
+          // db2_energy_meters_power_a: +ve = discharging, -ve = charging.
+          int house_dir = 0;
+          if (id(house_power).has_state()) {
+            if (id(house_power).state < -10.0f) house_dir = 1;             // charging
+            else if (id(house_power).state > 10.0f) house_dir = -1;        // discharging
+          }
+          if (id(house_battery).has_state()) {
+            it.printf(0, 28, id(font_roboto), fg, "Bat %.0f%%", id(house_battery).state);
+            draw_batt(2, 41, id(house_battery).state, house_dir);
+          } else {
+            it.printf(0, 28, id(font_roboto), fg, "Bat --");
+          }
+          if (id(house_power).has_state()) {
+            float p = id(house_power).state;
+            const char *state = (p > 10.0f) ? "Dis" : (p < -10.0f) ? "Chg" : "Idle";
+            it.printf(0, 55, id(font_roboto), fg, " %s %.0fW", state, fabs(p));
+          }
+          // Eaton current operation mode, shortened to fit the 64px panel.
+          if (id(house_mode).has_state()) {
+            std::string m = id(house_mode).state;
+            const char *shortm = m.c_str();
+            if (m == "Maximize Auto Consumption") shortm = "SelfComp";
+            else if (m == "Manual Charge") shortm = "Chrg";
+            else if (m == "Basic Mode") shortm = "Idle";
+            it.printf(0, 68, id(font_roboto), fg, " %s", shortm);
+          }
+
+          // ---- Car (Skoda Enyaq) ----
+          int car_dir = (id(car_charge_power).has_state() && id(car_charge_power).state > 0.1f) ? 1 : 0;
+          if (id(car_battery).has_state()) {
+            it.printf(0, 84, id(font_roboto), fg, "Car %.0f%%", id(car_battery).state);
+            draw_batt(2, 97, id(car_battery).state, car_dir);
+          } else {
+            it.printf(0, 84, id(font_roboto), fg, "Car --");
+          }
+          if (id(car_charge_power).has_state()) {
+            it.printf(0, 111, id(font_roboto), fg, " %.1fkW", id(car_charge_power).state);
+          }
+
+# Infrared Transmitter Configuration (IR hardware removed)
+# remote_transmitter:
+#   pin: 26 # IR transmitter output
+#   carrier_duty_percent: 50%
 
 ##############################################################
 # Infrared Remote Control for Dyson AM07
@@ -119,140 +511,155 @@ remote_transmitter:
 # https://github.com/Rjevski/esphome-dyson-am07
 
 globals:
-   - id: current_power_code
-     type: int
-     initial_value: "0"
-   - id: fan_power_state
+   # --- IR/Dyson globals disabled (IR hardware removed) ---
+   # - id: current_power_code
+   #   type: int
+   #   initial_value: "0"
+   # - id: fan_power_state
+   #   type: bool
+   #   initial_value: "true"  # to match on_boot action
+   # - id: desired_fan_speed
+   #   type: int
+   #   initial_value: "1"
+   # - id: fan_speed
+   #   type: int
+   #   initial_value: "1"  # to match on_boot action
+   # - id: desired_swing_state
+   #   type: bool
+   #   initial_value: "false"
+   # - id: swing_state
+   #   type: bool
+   #   initial_value: "true"  # to match on_boot action
+   # Message shown on the OLED, set from Home Assistant. Persisted across reboots.
+   - id: display_message
+     type: std::string
+     restore_value: true
+     initial_value: '"Busy Light 2"'
+   # Burn-in protection: current invert state, toggled periodically.
+   - id: display_invert
      type: bool
-     initial_value: "true"  # to match on_boot action
-   - id: desired_fan_speed
-     type: int
-     initial_value: "1"  
-   - id: fan_speed
-     type: int
-     initial_value: "1"  # to match on_boot action
-   - id: desired_swing_state
-     type: bool
+     restore_value: false
      initial_value: "false"
-   - id: swing_state
-     type: bool
-     initial_value: "true"  # to match on_boot action
+   # Page rotation step: page 1 shows for 1 tick, page 2 for 2 ticks (half the time).
+   - id: page_step
+     type: int
+     restore_value: false
+     initial_value: "0"
 
 
-script:
-  - id: transmit_power_button
-    then:
-      - remote_transmitter.transmit_pronto:
-          repeat:
-            times: 2
-          data: !lambda |-
-            switch(id(current_power_code)) {
-              case 0:
-                return "0000 006D 0011 0000 0054 0022 001B 0040 001B 0021 001B 0021 001B 003F 001B 0021 001B 0021 001B 0020 001B 0023 001B 0022 001B 0021 001B 0021 001B 0021 001B 0021 001B 0021 001B 0021 001B 06C3";
-              case 1:
-                return "0000 006D 0011 0000 0054 0022 001B 0040 001B 0021 001B 0021 001B 003F 001B 0021 001B 0021 001B 0020 001B 0023 001B 0022 001B 0021 001B 0021 001B 0021 001B 0021 001B 0021 001B 003F 001B 06C3";
-              default:
-                return "0000 006D 0011 0000 0054 0022 001B 0040 001B 0021 001B 0021 001B 003F 001B 0021 001B 0021 001B 0020 001B 0023 001B 0022 001B 0021 001B 0021 001B 0021 001B 0021 001B 003F 001B 0021 001B 06C3";
-            }
-      - lambda: |-
-          switch (id(current_power_code)) {
-            case 2:
-              id(current_power_code) = 0;
-              break;
-            default:
-              id(current_power_code) += 1;
-          }
-  - id: transmit_swing_toggle
-    then:
-      - remote_transmitter.transmit_pronto:
-          repeat:
-            times: 2
-          data: "0000 006D 0011 0000 0054 0022 001C 003F 001B 0021 001C 0021 001C 003F 001C 0021 001C 0021 001C 0021 001B 0040 001C 0022 001B 003F 001B 0021 001B 003F 001B 0021 001B 003E 001B 0021 001C 06C3"
-  - id: transmit_up
-    then:
-      - remote_transmitter.transmit_pronto:
-          repeat:
-            times: 2
-          data: "0000 006D 0011 0000 0058 0022 001B 0040 001B 0022 001B 0021 001B 003F 001B 0021 001B 0021 001B 0021 001B 0023 001B 0040 001B 0022 001B 0040 001B 0021 001B 003F 001B 0021 001B 003F 001B 06C3"
-  - id: transmit_down
-    then:
-      - remote_transmitter.transmit_pronto:
-          repeat:
-            times: 2
-          data: "0000 006D 0011 0000 0053 0022 001B 0040 001B 0022 001B 0021 001B 003F 001B 0021 001B 0021 001B 0021 001B 0041 001B 0040 001B 0040 001B 0040 001B 003F 001B 003F 001B 0021 001B 0021 001B 06C3"
-  - id: set_fan_state
-    then:
-      - if:
-          condition:
-            lambda: "return (id(desired_fan_speed) > 0) != id(fan_power_state);"
-          then:
-            - script.execute: transmit_power_button
-            - globals.set:
-                id: fan_power_state
-                value: !lambda "return !id(fan_power_state);"
-            - delay: 500ms
-      - if:
-          condition:
-            lambda: "return id(fan_power_state) && (id(desired_swing_state) != id(swing_state));"
-          then:
-            - script.execute: transmit_swing_toggle
-            - globals.set:
-                id: swing_state
-                value: !lambda "return !(swing_state);"
-            - delay: 500ms
-      -  while:
-          condition:
-            lambda: "return id(fan_power_state) && (id(desired_fan_speed) != id(fan_speed));"
-          then:
-            - if:
-                condition:
-                  lambda: "return id(desired_fan_speed) > id(fan_speed);"
-                then:
-                  - script.execute: increment_fan_speed
-                else:
-                  - script.execute: decrement_fan_speed
-            - delay: 500ms
-  - id: increment_fan_speed
-    then:
-      - script.execute: transmit_up
-      - globals.set:
-          id: fan_speed
-          value: !lambda "return id(fan_speed) + 1;"
-  - id: decrement_fan_speed
-    then:
-      - script.execute: transmit_down
-      - globals.set:
-          id: fan_speed
-          value: !lambda "return id(fan_speed) - 1;"
+# --- IR/Dyson scripts, outputs and fan disabled (IR hardware removed) ---
+# script:
+#   - id: transmit_power_button
+#     then:
+#       - remote_transmitter.transmit_pronto:
+#           repeat:
+#             times: 2
+#           data: !lambda |-
+#             switch(id(current_power_code)) {
+#               case 0:
+#                 return "0000 006D 0011 0000 0054 0022 001B 0040 001B 0021 001B 0021 001B 003F 001B 0021 001B 0021 001B 0020 001B 0023 001B 0022 001B 0021 001B 0021 001B 0021 001B 0021 001B 0021 001B 0021 001B 06C3";
+#               case 1:
+#                 return "0000 006D 0011 0000 0054 0022 001B 0040 001B 0021 001B 0021 001B 003F 001B 0021 001B 0021 001B 0020 001B 0023 001B 0022 001B 0021 001B 0021 001B 0021 001B 0021 001B 0021 001B 003F 001B 06C3";
+#               default:
+#                 return "0000 006D 0011 0000 0054 0022 001B 0040 001B 0021 001B 0021 001B 003F 001B 0021 001B 0021 001B 0020 001B 0023 001B 0022 001B 0021 001B 0021 001B 0021 001B 0021 001B 003F 001B 0021 001B 06C3";
+#             }
+#       - lambda: |-
+#           switch (id(current_power_code)) {
+#             case 2:
+#               id(current_power_code) = 0;
+#               break;
+#             default:
+#               id(current_power_code) += 1;
+#           }
+#   - id: transmit_swing_toggle
+#     then:
+#       - remote_transmitter.transmit_pronto:
+#           repeat:
+#             times: 2
+#           data: "0000 006D 0011 0000 0054 0022 001C 003F 001B 0021 001C 0021 001C 003F 001C 0021 001C 0021 001C 0021 001B 0040 001C 0022 001B 003F 001B 0021 001B 003F 001B 0021 001B 003E 001B 0021 001C 06C3"
+#   - id: transmit_up
+#     then:
+#       - remote_transmitter.transmit_pronto:
+#           repeat:
+#             times: 2
+#           data: "0000 006D 0011 0000 0058 0022 001B 0040 001B 0022 001B 0021 001B 003F 001B 0021 001B 0021 001B 0021 001B 0023 001B 0040 001B 0022 001B 0040 001B 0021 001B 003F 001B 0021 001B 003F 001B 06C3"
+#   - id: transmit_down
+#     then:
+#       - remote_transmitter.transmit_pronto:
+#           repeat:
+#             times: 2
+#           data: "0000 006D 0011 0000 0053 0022 001B 0040 001B 0022 001B 0021 001B 003F 001B 0021 001B 0021 001B 0021 001B 0041 001B 0040 001B 0040 001B 0040 001B 003F 001B 003F 001B 0021 001B 0021 001B 06C3"
+#   - id: set_fan_state
+#     then:
+#       - if:
+#           condition:
+#             lambda: "return (id(desired_fan_speed) > 0) != id(fan_power_state);"
+#           then:
+#             - script.execute: transmit_power_button
+#             - globals.set:
+#                 id: fan_power_state
+#                 value: !lambda "return !id(fan_power_state);"
+#             - delay: 500ms
+#       - if:
+#           condition:
+#             lambda: "return id(fan_power_state) && (id(desired_swing_state) != id(swing_state));"
+#           then:
+#             - script.execute: transmit_swing_toggle
+#             - globals.set:
+#                 id: swing_state
+#                 value: !lambda "return !(swing_state);"
+#             - delay: 500ms
+#       -  while:
+#           condition:
+#             lambda: "return id(fan_power_state) && (id(desired_fan_speed) != id(fan_speed));"
+#           then:
+#             - if:
+#                 condition:
+#                   lambda: "return id(desired_fan_speed) > id(fan_speed);"
+#                 then:
+#                   - script.execute: increment_fan_speed
+#                 else:
+#                   - script.execute: decrement_fan_speed
+#             - delay: 500ms
+#   - id: increment_fan_speed
+#     then:
+#       - script.execute: transmit_up
+#       - globals.set:
+#           id: fan_speed
+#           value: !lambda "return id(fan_speed) + 1;"
+#   - id: decrement_fan_speed
+#     then:
+#       - script.execute: transmit_down
+#       - globals.set:
+#           id: fan_speed
+#           value: !lambda "return id(fan_speed) - 1;"
 
+# output:
+# - platform: template
+#   id: fan_output
+#   type: float
+#   write_action:
+#     then:
+#       - globals.set:
+#           id: desired_fan_speed
+#           value: !lambda "return int(state * 10);"
+#       - script.execute: set_fan_state
+#
+# - platform: template
+#   id: swing_output
+#   type: binary
+#   write_action:
+#     then:
+#       - globals.set:
+#           id: desired_swing_state
+#           value: !lambda "return state;"
+#       - script.execute: set_fan_state
 
-
-output:
-- platform: template
-  id: fan_output
-  type: float
-  write_action:
-    then:
-      - globals.set:
-          id: desired_fan_speed
-          value: !lambda "return int(state * 10);"
-      - script.execute: set_fan_state
-
-- platform: template
-  id: swing_output
-  type: binary
-  write_action:
-    then:
-      - globals.set:
-          id: desired_swing_state
-          value: !lambda "return state;"
-      - script.execute: set_fan_state
-
-fan:
-  - platform: speed
-    device_id: dyson_remote
-    output: fan_output
-    oscillation_output: swing_output
-    name: "Fan"
-    speed_count: 10
-    restore_mode: RESTORE_DEFAULT_OFF
+# fan:
+#   - platform: speed
+#     device_id: dyson_remote
+#     output: fan_output
+#     oscillation_output: swing_output
+#     name: "Fan"
+#     speed_count: 10
+#     restore_mode: RESTORE_DEFAULT_OFF
