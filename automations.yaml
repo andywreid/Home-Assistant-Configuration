@@ -4010,19 +4010,21 @@
   description: ''
   triggers:
   - trigger: time
-    at: 09:30:00
+    at: 09:45:00
   conditions: []
   actions:
-  - device_id: 593ee85f9f3fb2a5ca8afbbb0fff3917
-    domain: number
-    entity_id: bb53b2de3ae8db59d112773b0b9775c0
-    type: set_value
-    value: 100
-  - device_id: 593ee85f9f3fb2a5ca8afbbb0fff3917
-    domain: select
-    entity_id: 451530e7b2c4a46c6b39c5539cb57bc1
-    type: select_option
-    option: '11:00'
+  - action: number.set_value
+    metadata: {}
+    target:
+      entity_id: number.octopus_energy_00000000_0002_4000_8020_0000001117b0_intelligent_charge_target
+    data:
+      value: '100'
+  - action: select.select_option
+    metadata: {}
+    target:
+      entity_id: select.octopus_energy_00000000_0002_4000_8020_0000001117b0_intelligent_target_time
+    data:
+      option: '11:00'
   mode: single
 - id: '1770260050072'
   alias: XStorage Battery Safety Stop on Cell Imbalance
@@ -4192,7 +4194,7 @@
   description: ''
   triggers:
   - trigger: time
-    at: '23:35:00'
+    at: '23:25:00'
     id: Charge
   - trigger: time
     at: '11:00:00'
