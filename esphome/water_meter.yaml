@@ -102,7 +102,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/genestealer/everblu-meters-esp8266-improved
-      ref: fix/127-wakeup-burst-truncated-on-retry
+      ref: develop
       path: ESPHOME-release
     components: [ everblu_meter ]
     refresh: 0s
