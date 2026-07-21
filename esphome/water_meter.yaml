@@ -75,6 +75,7 @@ logger:
   baud_rate: 115200
   logs:
     everblu_meter: DEBUG  # Only this component exists now
+    sensor: WARN  # Reduce per-sensor publish noise
 
 
 # Time component (required for scheduled readings)
@@ -96,23 +97,23 @@ time:
 #     refresh: 0d
 
 
-# # EverBlu Meter Component
+# EverBlu Meter Component
 # # Using the 'develop' branch (radio-global calibration + device-level entities).
-external_components:
-  - source:
-      type: git
-      url: https://github.com/genestealer/everblu-meters-esp8266-improved
-      ref: main
-      path: ESPHOME-release
-    components: [ everblu_meter ]
-    refresh: 0s
-
-# Local copy (previous source) - re-enable if developing the component locally:
 # external_components:
 #   - source:
-#       type: local
-#       path: ./external_components/
+#       type: git
+#       url: https://github.com/genestealer/everblu-meters-esp8266-improved
+#       ref: main
+#       path: ESPHOME-release
 #     components: [ everblu_meter ]
+#     refresh: 0s
+
+# Local copy (previous source) - re-enable if developing the component locally:
+external_components:
+  - source:
+      type: local
+      path: ./external_components/
+    components: [ everblu_meter ]
 
 
 # external_components:
@@ -173,6 +174,12 @@ everblu_meter:
     gdo2_pin:
       number: ${cc1101_gdo2}
       allow_other_uses: true
+
+    frequency: 433.782712      # Fine-tuned frequency
+    
+    # rx_attenuation: 0     # Optional (v3.0.0+): LNA gain limit (0/6/12/18 dB). All meters share the
+    #                       # CC1101 hardware, so set the same value on every entry.
+    #                       # Only needed when *** NEAR-FIELD SATURATION DETECTED *** is logged.
     time_id: homeassistant_time
     timezone_offset: ${tz_offset_min}
     read_hour: 11
@@ -181,6 +188,9 @@ everblu_meter:
 
     request_reading_button:
       name: "${meter_1_prefix} Read Meter Now"
+      device_id: water_meter_device_1
+    stop_reading_button:
+      name: "${meter_1_prefix} Stop Reading"
       device_id: water_meter_device_1
     # Frequency calibration is a property of the shared CC1101 radio, not the meter.
     # Declare these buttons/sensors on ONE meter only (here, the first). They are
@@ -236,6 +246,12 @@ everblu_meter:
     meter_year_sensor:
       name: "${meter_1_prefix} Meter Year"
       device_id: water_meter_device_1
+    meter_clock_sensor:
+      name: "${meter_1_prefix} Meter Clock"
+      device_id: water_meter_device_1
+    meter_model_sensor:
+      name: "${meter_1_prefix} Meter Type"
+      device_id: water_meter_device_1
     reading_schedule_sensor:
       name: "${meter_1_prefix} Reading Schedule"
       device_id: water_meter_device_1
@@ -287,6 +303,7 @@ everblu_meter:
     gdo2_pin:
       number: ${cc1101_gdo2}
       allow_other_uses: true
+    # rx_attenuation: 0     # Must match the value set on meter 1 (shared CC1101 hardware)
     time_id: homeassistant_time
     timezone_offset: ${tz_offset_min}
     read_hour: 11
@@ -294,6 +311,9 @@ everblu_meter:
 
     request_reading_button:
       name: "${meter_2_prefix} Read Meter Now"
+      device_id: water_meter_device_2
+    stop_reading_button:
+      name: "${meter_2_prefix} Stop Reading"
       device_id: water_meter_device_2
     # Frequency calibration buttons/sensors are radio-global and declared on the
     # first meter only (see cold_water_meter above); they act on the shared CC1101.
@@ -335,6 +355,12 @@ everblu_meter:
       device_id: water_meter_device_2
     meter_year_sensor:
       name: "${meter_2_prefix} Meter Year"
+      device_id: water_meter_device_2
+    meter_clock_sensor:
+      name: "${meter_2_prefix} Meter Clock"
+      device_id: water_meter_device_2
+    meter_model_sensor:
+      name: "${meter_2_prefix} Meter Type"
       device_id: water_meter_device_2
     reading_schedule_sensor:
       name: "${meter_2_prefix} Reading Schedule"
@@ -383,6 +409,7 @@ everblu_meter:
     gdo2_pin:
       number: ${cc1101_gdo2}
       allow_other_uses: true
+    # rx_attenuation: 0     # Must match the value set on meter 1 (shared CC1101 hardware)
     time_id: homeassistant_time
     timezone_offset: ${tz_offset_min}
     read_hour: 11
@@ -390,6 +417,9 @@ everblu_meter:
 
     request_reading_button:
       name: "${meter_3_prefix} Read Meter Now"
+      device_id: water_meter_device_3
+    stop_reading_button:
+      name: "${meter_3_prefix} Stop Reading"
       device_id: water_meter_device_3
     # Frequency calibration buttons/sensors are radio-global and declared on the
     # first meter only (see cold_water_meter above); they act on the shared CC1101.
@@ -431,6 +461,12 @@ everblu_meter:
       device_id: water_meter_device_3
     meter_year_sensor:
       name: "${meter_3_prefix} Meter Year"
+      device_id: water_meter_device_3
+    meter_clock_sensor:
+      name: "${meter_3_prefix} Meter Clock"
+      device_id: water_meter_device_3
+    meter_model_sensor:
+      name: "${meter_3_prefix} Meter Type"
       device_id: water_meter_device_3
     reading_schedule_sensor:
       name: "${meter_3_prefix} Reading Schedule"
