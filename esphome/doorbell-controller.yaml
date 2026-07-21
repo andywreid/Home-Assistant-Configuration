@@ -246,11 +246,11 @@ switch:
               lambda: 'return id(homeassistant_time).now().hour > id(nighttime_start) || id(homeassistant_time).now().hour < id(nighttime_stop);'
             then:
               - logger.log: "Doorbell pushed at nighttime"
-              - delay: 400ms
+              - delay: 1000ms
               - switch.turn_off: bellRelay
             else:
               - logger.log: "Doorbell pushed at daytime"
-              - delay: 1500ms
+              - delay: 2000ms
               - switch.turn_off: bellRelay
                 
     # on_turn_on:
