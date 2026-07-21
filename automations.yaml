@@ -54,6 +54,18 @@
         target:
           entity_id: button.garden_30_reboot
         continue_on_error: true
+    - sequence:
+      - delay:
+          hours: 1
+          minutes: 0
+          seconds: 0
+          milliseconds: 0
+      - action: button.press
+        data: {}
+        target:
+          entity_id:
+          - button.parking_space_onvif_reboot
+        continue_on_error: true
     continue_on_error: true
 - id: '1564192629041'
   alias: 'Irrigation: Pot Irrigation Script Off to Valve Off'
@@ -1994,9 +2006,7 @@
       minutes: -30
     before: sunrise
   actions:
-  - data:
-      transition: 20
-      kelvin: 2700
+  - data: {}
     target:
       entity_id: light.downstairs_hallway
     action: light.turn_on
@@ -3339,7 +3349,7 @@
         domain: binary_sensor
       - condition: time
         after: 05:40:00
-        before: '21:30:00'
+        before: '23:35:00'
       sequence:
       - sequence:
         - device_id: 7243064af443eaae599e1a98ef6c25f7
@@ -3430,6 +3440,33 @@
               acb_sleep:
               - serial_num: '121917000087'
           alias: 121917000087 Discharge
+  - sequence:
+    - action: enphase_envoy_raw_data.send_data
+      data:
+        config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
+        endpoint: /admin/lib/acb_config.json
+        method: PUT
+        risk_acknowledged: true
+        test_mode: false
+        data:
+          acb_sleep:
+          - serial_num: '122047098091'
+            sleep_min_soc: 95
+            sleep_max_soc: 100
+      alias: 122047098091 Charge
+    - action: enphase_envoy_raw_data.send_data
+      data:
+        config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
+        endpoint: /admin/lib/acb_config.json
+        method: PUT
+        risk_acknowledged: true
+        test_mode: false
+        data:
+          acb_sleep:
+          - serial_num: '121917000087'
+            sleep_min_soc: 95
+            sleep_max_soc: 100
+      alias: 121917000087 Charge
   mode: restart
 - id: '1758208938977'
   alias: Octopus Energy - Auto Set Peak/Off-Peak Tariff
