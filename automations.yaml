@@ -4186,46 +4186,6 @@
       target:
         entity_id: fan.office_air_purifier_air_purifier_fan
   mode: single
-- id: '1774803255457'
-  alias: ACB Battery - Full Charge Disconnect and 11am Reconnect
-  description: 'When the ACB battery has been at 100% for 10 minutes, the mains switch
-    is turned off to prevent over-cycling. At 11am, if the switch is still off, it
-    is turned back on ready for the 12:00 peak tariff window.
-
-    '
-  triggers:
-  - entity_id:
-    - sensor.acb_122035037761_battery
-    above: 99
-    for:
-      hours: 0
-      minutes: 5
-      seconds: 0
-    id: battery_full
-    trigger: numeric_state
-  - at: '11:00:00'
-    id: reconnect_time
-    trigger: time
-  actions:
-  - choose:
-    - conditions:
-      - condition: trigger
-        id: battery_full
-      sequence:
-      - target:
-          entity_id: switch.enphase_acb_battery_switch
-        action: switch.turn_off
-    - conditions:
-      - condition: trigger
-        id: reconnect_time
-      - condition: state
-        entity_id: switch.enphase_acb_battery_switch
-        state: 'off'
-      sequence:
-      - target:
-          entity_id: switch.enphase_acb_battery_switch
-        action: switch.turn_on
-  mode: single
 - id: '1775691871030'
   alias: ACB Battery Charge
   description: ''
