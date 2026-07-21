@@ -204,6 +204,12 @@ text_sensor:
   - platform: homeassistant
     id: house_mode
     entity_id: select.eaton_xstorage_home_current_operation_mode
+  # Energy-saving mode active normally means the house is running from solar.
+  - platform: homeassistant
+    id: energy_saving_mode
+    entity_id: sensor.eaton_xstorage_home_energy_saving_mode_activated
+    on_value:
+      - script.execute: update_busy_light
 
 ##############################################################
 # Battery / charging sensors (imported from Home Assistant)
@@ -223,6 +229,11 @@ sensor:
   - platform: homeassistant
     id: house_power
     entity_id: sensor.db2_energy_meters_power_a
+    on_value:
+      - script.execute: update_busy_light
+  - platform: homeassistant
+    id: battery_backup_level
+    entity_id: number.eaton_xstorage_home_battery_backup_level
   - platform: homeassistant
     id: solar_power
     entity_id: sensor.solar_panels_current_power_production_watts
@@ -283,7 +294,21 @@ script:
           }
           auto call = id(busy_light).turn_on();
           call.set_brightness(0.5f);
-          if (!id(octopus_off_peak).has_state()) {
+          // Energy-saving mode active normally means the house is running from
+          // solar -> yellow. Otherwise, if the house battery is discharging we
+          // are running from battery -> pink. Fall back to the Octopus off-peak
+          // status (green/red, or blue when no data yet).
+          bool energy_saving = false;
+          if (id(energy_saving_mode).has_state()) {
+            std::string s = id(energy_saving_mode).state;
+            energy_saving = (s == "true" || s == "True" || s == "on" || s == "ON");
+          }
+          bool on_battery = id(house_power).has_state() && id(house_power).state > 10.0f;
+          if (energy_saving) {
+            call.set_rgb(1.0f, 1.0f, 0.0f);   // yellow = running from solar
+          } else if (on_battery) {
+            call.set_rgb(1.0f, 0.0f, 0.5f);   // pink  = running from battery
+          } else if (!id(octopus_off_peak).has_state()) {
             call.set_rgb(0.0f, 0.0f, 1.0f);   // blue  = no data from HA yet
           } else if (id(octopus_off_peak).state) {
             call.set_rgb(0.0f, 1.0f, 0.0f);   // green = off-peak
@@ -412,11 +437,15 @@ display:
           //   -1 discharging -> pulses sweep right->left (energy flowing out)
           //    0 idle        -> static solid fill
           // (1-bit panel, so "pulses" are moving dark gaps rather than true grey.)
-          auto draw_batt = [&](int x, int y, float pct, int dir) {
+          auto draw_batt = [&](int x, int y, float pct, int dir, float pct_min = 0.0f) {
             const int w = 40, h = 12, term_w = 3, term_h = 6;
             it.rectangle(x, y, w, h, fg);                                   // body
             it.filled_rectangle(x + w, y + (h - term_h) / 2, term_w, term_h, fg); // terminal
             int ix = x + 2, iy = y + 2, iw = w - 4, ih = h - 4;
+            // Rescale so the bar reads empty at pct_min and full at 100 (e.g. the
+            // house battery only discharges down to its backup level, not 0%).
+            float span = 100.0f - pct_min;
+            if (span > 0.0f) pct = (pct - pct_min) / span * 100.0f;
             if (pct < 0) pct = 0;
             if (pct > 100) pct = 100;
             int fillw = (int)(iw * pct / 100.0f + 0.5f);
@@ -468,7 +497,8 @@ display:
           }
           if (id(house_battery).has_state()) {
             it.printf(0, 28, id(font_roboto), fg, "Bat %.0f%%", id(house_battery).state);
-            draw_batt(2, 41, id(house_battery).state, house_dir);
+            draw_batt(2, 41, id(house_battery).state, house_dir,
+                      id(battery_backup_level).has_state() ? id(battery_backup_level).state : 0.0f);
           } else {
             it.printf(0, 28, id(font_roboto), fg, "Bat --");
           }
