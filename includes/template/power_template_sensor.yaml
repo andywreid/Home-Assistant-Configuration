@@ -28,3 +28,121 @@
       #       | int
       #   }}
       availability: "{{ states('sensor.myups_current_real_power') | is_number and states('sensor.server_real_power') | is_number and states('sensor.pc_and_desk_real_power') | is_number }}"
+
+############################################################
+#
+# DB2 Consumer Unit - 40A MCB Load Monitoring
+#
+# ASSUMPTIONS - please verify before trusting the overload alarm:
+#
+# 1. sensor.db2_energy_meters_power_b was originally in this sum but
+#    has been removed: it is a CT clamp on the house battery, the same
+#    quantity sensor.battery_combined_power reports, so including both
+#    counted the battery TWICE. battery_combined_power is used instead
+#    as the single battery term. (Sibling channel
+#    sensor.db2_energy_meters_power_a is the battery CT referenced in
+#    esphome/busylight-mk2-02.yaml, same +ve = discharging convention.)
+# 2. sensor.battery_combined_power uses -ve = charging, so it is
+#    negated: charging draws current through the MCB and must push
+#    the net figure up.
+# 3. The four appliance meters are assumed to be independent circuits
+#    that do not overlap each other. If any of them sits upstream of
+#    another, that load is double counted.
+# 4. Anything on DB2 without a meter (lighting, sockets, etc.) is
+#    invisible here, so this figure UNDER-reports real MCB load.
+#    Treat it as a floor, not a true total.
+# 5. Single phase assumed, unity power factor. Current is derived as
+#    P / V, so any reactive load draws more real amps than shown.
+# 6. Missing sensors count as 0 W rather than breaking the sum. The
+#    unavailable_sources attribute lists which ones, and the
+#    "DB2 Power Data Incomplete" binary_sensor flags it.
+#
+############################################################
+- sensor:
+    # Net power flowing through the DB2 40A MCB (signed).
+    - name: "DB2 Net Power"
+      unique_id: db2_net_power
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      state: >
+        {% set battery_sign = -1 %}
+        {# Unidirectional appliance meters - always positive draw. #}
+        {% set loads = [
+            'sensor.freezer_real_power',
+            'sensor.myups_current_real_power',
+            'sensor.tumble_dryer_real_power',
+            'sensor.smart_plug_6098_real_power'
+          ] %}
+        {% set ns = namespace(total = 0.0) %}
+        {% for e in loads %}
+          {% set ns.total = ns.total + (states(e) | float(0)) %}
+        {% endfor %}
+        {# Bi-directional battery term, negated so charging adds load. #}
+        {% set ns.total = ns.total
+           + (states('sensor.battery_combined_power') | float(0)) * battery_sign %}
+        {{ ns.total | round(1) }}
+      attributes:
+        # Keep this list in step with the one above. has_value is used
+        # rather than is_state, because is_state returns false for an
+        # entity_id that does not exist at all - which would silently
+        # hide a typo or a removed device.
+        unavailable_sources: >
+          {{ [
+               'sensor.freezer_real_power',
+               'sensor.myups_current_real_power',
+               'sensor.tumble_dryer_real_power',
+               'sensor.smart_plug_6098_real_power',
+               'sensor.battery_combined_power'
+             ] | reject('has_value')
+               | list }}
+
+    # Magnitude of current through the MCB. A breaker doesn't care
+    # which way the energy is going, so we take the absolute value.
+    - name: "DB2 MCB Current"
+      unique_id: db2_mcb_current
+      unit_of_measurement: "A"
+      device_class: current
+      state_class: measurement
+      availability: "{{ has_value('sensor.db2_net_power') }}"
+      state: >
+        {% set voltage = states('sensor.db2_energy_meters_voltage') | float(230) %}
+        {% set voltage = voltage if voltage > 0 else 230 %}
+        {{ ((states('sensor.db2_net_power') | float(0)) | abs / voltage) | round(2) }}
+
+    - name: "DB2 MCB Load"
+      unique_id: db2_mcb_load
+      unit_of_measurement: "%"
+      state_class: measurement
+      icon: mdi:gauge
+      availability: "{{ has_value('sensor.db2_mcb_current') }}"
+      state: >
+        {{ ((states('sensor.db2_mcb_current') | float(0)) / 40 * 100) | round(1) }}
+
+- binary_sensor:
+    # BS EN 60898 Type B/C breakers tolerate 1.13x indefinitely and must
+    # trip by 1.45x within an hour, so 80% (32A) is the practical warning
+    # point. delay_on rides out compressor/motor inrush from the freezer
+    # and tumble dryer, which is over in a second or two; delay_off stops
+    # the alert flapping as loads cycle.
+    - name: "DB2 MCB Overload"
+      unique_id: db2_mcb_overload
+      device_class: problem
+      delay_on: "00:00:30"
+      delay_off: "00:02:00"
+      state: "{{ states('sensor.db2_mcb_current') | float(0) > 32 }}"
+
+    # When this is on, DB2 Net Power is under-reporting and the
+    # overload alarm above cannot be trusted.
+    - name: "DB2 Power Data Incomplete"
+      unique_id: db2_power_data_incomplete
+      device_class: problem
+      # default([], true) guards against the attribute being missing
+      # during startup, which would otherwise throw on | count.
+      state: >
+        {{ (state_attr('sensor.db2_net_power', 'unavailable_sources')
+            | default([], true)) | count > 0 }}
+      attributes:
+        missing: >
+          {{ (state_attr('sensor.db2_net_power', 'unavailable_sources')
+              | default([], true)) | join(', ') }}
