@@ -37,7 +37,7 @@ substitutions:
   subnet: 255.255.255.0
 
   # Debug Logging
-  log_level: DEBUG
+  log_level: WARN
 
   # Sensor Update Interval
   sensor_update_interval: 1min

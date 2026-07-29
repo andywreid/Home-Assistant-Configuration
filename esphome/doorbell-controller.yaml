@@ -52,7 +52,7 @@ substitutions:
   status_led_inverted: "true"
 
   # Debug Logging
-  log_level: DEBUG
+  log_level: WARN
   
 
   # Sensor Update Interval

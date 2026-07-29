@@ -37,7 +37,7 @@ substitutions:
   subnet: 255.255.255.0
 
   # Debug Logging
-  log_level: DEBUG
+  log_level: WARN
 
   # Sensor Update Interval
   sensor_update_interval: 1min
@@ -210,6 +210,14 @@ text_sensor:
     entity_id: sensor.eaton_xstorage_home_energy_saving_mode_activated
     on_value:
       - script.execute: update_busy_light
+  # Sun state ('above_horizon' / 'below_horizon') -> LED brightness.
+  # Full brightness during daylight so the light stays visible in a bright
+  # kitchen; dimmed after dark.
+  - platform: homeassistant
+    id: sun_state
+    entity_id: sun.sun
+    on_value:
+      - script.execute: update_busy_light
 
 ##############################################################
 # Battery / charging sensors (imported from Home Assistant)
@@ -293,7 +301,10 @@ script:
             return;
           }
           auto call = id(busy_light).turn_on();
-          call.set_brightness(0.5f);
+          // Full brightness in daylight, dimmed after sunset.
+          bool daytime = id(sun_state).has_state() &&
+                         id(sun_state).state == "above_horizon";
+          call.set_brightness(daytime ? 1.0f : 0.5f);
           // Energy-saving mode active normally means the house is running from
           // solar -> yellow. Otherwise, if the house battery is discharging we
           // are running from battery -> pink. Fall back to the Octopus off-peak
@@ -340,8 +351,10 @@ interval:
           id(page_step) = (id(page_step) + 1) % 3;
   # Keep the Busy Light in sync with the off-peak state and display blanking.
   # Light turns off when the kitchen is empty (matches OLED blanking) and turns
-  # back on at 50% brightness when someone is present. Blue = no HA data yet.
-  # Presence / off-peak changes trigger the script directly; this is a fallback.
+  # back on when someone is present - 100% brightness while the sun is up, 50%
+  # after dark. Blue = no HA data yet.
+  # Presence / off-peak / sun changes trigger the script directly; this is a
+  # fallback.
   - interval: 60s
     then:
       - script.execute: update_busy_light

@@ -39,7 +39,7 @@ substitutions:
   status_led_inverted: "true"
 
   # Debug Logging Level
-  log_level: DEBUG 
+  log_level: WARN 
   
     # BME280 Sensor Configuration
   i2c_pin_scl: D1

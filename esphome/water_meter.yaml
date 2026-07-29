@@ -17,7 +17,7 @@ substitutions:
   status_led_inverted: "true"
 
   # # Debug Logging
-  # log_level: DEBUG
+  # log_level: WARN
 
   # Sensor Update Interval
   sensor_update_interval: 1min
@@ -99,14 +99,14 @@ time:
 
 # EverBlu Meter Component
 # # Using the 'develop' branch (radio-global calibration + device-level entities).
-external_components:
-  - source:
-      type: git
-      url: https://github.com/genestealer/everblu-meters-esp8266-improved
-      ref: main
-      path: ESPHOME-release
-    components: [ everblu_meter ]
-    refresh: 0s
+# external_components:
+#   - source:
+#       type: git
+#       url: https://github.com/genestealer/everblu-meters-esp8266-improved
+#       ref: main
+#       path: ESPHOME-release
+#     components: [ everblu_meter ]
+#     refresh: 0s
 
 # # Local copy (previous source) - re-enable if developing the component locally:
 # external_components:
@@ -125,14 +125,14 @@ external_components:
 #     components: [ everblu_meter ]
 #     refresh: 0s
 
-# external_components:
-#   - source:
-#       type: git
-#       url: https://github.com/genestealer/everblu-meters-esp8266-improved
-#       ref: fix/cc1101-fifo-overflow-tx
-#       path: ESPHOME-release
-#     components: [ everblu_meter ]
-#     refresh: 0s
+external_components:
+  - source:
+      type: git
+      url: https://github.com/genestealer/everblu-meters-esp8266-improved
+      ref: fix/cc1101-spi-link-selftest
+      path: ESPHOME-release
+    components: [ everblu_meter ]
+    refresh: 0s
 
 
 spi:
