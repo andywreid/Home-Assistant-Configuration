@@ -863,36 +863,30 @@
     delay, hence the use of the state trigger for presence awareness (to avoid frequent  switch
     cycling whilst at home with poor location accuracy) I.E. Check if the ice maker
     is off before trying to turn it on, and vice versa.'
-  trigger:
-  - platform: time
-    at: input_datetime.ice_maker_on_time
+  triggers:
+  - at: input_datetime.ice_maker_on_time
     id: 'On'
-  - platform: time
-    at: input_datetime.ice_maker_off_time
+    trigger: time
+  - at: input_datetime.ice_maker_off_time
     id: 'Off'
-  - platform: zone
-    entity_id: person.richard
+    trigger: time
+  - entity_id: person.richard
     zone: zone.home
     event: leave
     id: 'Off'
-  - platform: zone
-    entity_id: person.richard
+    trigger: zone
+  - entity_id: person.richard
     zone: zone.home
     event: enter
     id: 'On'
-  - platform: numeric_state
-    entity_id:
+    trigger: zone
+  - entity_id:
     - sensor.icemaker_water_temperature
     above: input_number.ice_maker_water_high_temperature_threshold
     id: Hot
-  - type: connected
-    platform: device
-    device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-    entity_id: 1ef6ddd3ef1e712df001733e0ac1d6a9
-    domain: binary_sensor
-    id: Check
-  condition: []
-  action:
+    trigger: numeric_state
+  conditions: []
+  actions:
   - choose:
     - conditions:
       - condition: time
@@ -902,48 +896,20 @@
         entity_id: person.richard
         zone: zone.home
       sequence:
-      - if:
-        - condition: device
-          type: is_off
-          device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-          entity_id: 9dc6d48cc35cec309bb214c849c5c7df
-          domain: switch
-          enabled: true
-        then:
-        - type: turn_on
-          device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-          entity_id: 9dc6d48cc35cec309bb214c849c5c7df
-          domain: switch
+      - if: []
+        then: []
     - conditions:
       - condition: numeric_state
         entity_id: sensor.icemaker_water_temperature
         above: input_number.ice_maker_water_high_temperature_threshold
       sequence:
-      - if:
-        - condition: device
-          type: is_off
-          device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-          entity_id: 9dc6d48cc35cec309bb214c849c5c7df
-          domain: switch
+      - if: []
         then:
-        - type: turn_on
-          device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-          entity_id: 9dc6d48cc35cec309bb214c849c5c7df
-          domain: switch
         - delay:
             hours: 0
             minutes: 15
             seconds: 0
             milliseconds: 0
-        - type: turn_off
-          device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-          entity_id: 9dc6d48cc35cec309bb214c849c5c7df
-          domain: switch
-    default:
-    - type: turn_off
-      device_id: 996ea9226cbd0c2fe7ddb21af32045f9
-      entity_id: 9dc6d48cc35cec309bb214c849c5c7df
-      domain: switch
   mode: restart
 - id: '1626459943924'
   alias: Water on off
@@ -2759,27 +2725,18 @@
     before: sunrise
   actions:
   - data:
-      transition: 2
       brightness_pct: 100
+      transition: 1
     target:
       entity_id: light.garden_lights
     action: light.turn_on
-  - repeat:
-      until:
-      - type: is_not_occupied
-        condition: device
-        device_id: fa69bc49d4bfe964b899661c045598c2
-        entity_id: da0967db8c828ae40c9a359bb2e0436d
-        domain: binary_sensor
-        enabled: false
-      sequence:
-      - delay:
-          hours: 0
-          minutes: 5
-          seconds: 0
-          milliseconds: 0
+  - delay:
+      hours: 0
+      minutes: 10
+      seconds: 0
+      milliseconds: 0
   - data:
-      transition: 20
+      transition: 2300
     action: light.turn_off
     target:
       entity_id: light.garden_lights
@@ -3351,54 +3308,55 @@
         after: 05:40:00
         before: '23:35:00'
       sequence:
-      - sequence:
-        - device_id: 7243064af443eaae599e1a98ef6c25f7
-          domain: number
-          entity_id: 5ca05c1ef7722190111f5a5096e6a102
-          type: set_value
-          value: 100
-        - device_id: 7243064af443eaae599e1a98ef6c25f7
-          domain: number
-          entity_id: 4a32fe12a0ba6be0cf7e9daa955662ad
-          type: set_value
-          value: 95
-        - device_id: 7243064af443eaae599e1a98ef6c25f7
-          domain: number
-          entity_id: 2a30cb54d4928b25ce36b1089506b2bf
-          type: set_value
-          value: 4
-        - device_id: 7243064af443eaae599e1a98ef6c25f7
-          domain: select
-          entity_id: 8cb6de227f4654eeee815f12a7579efa
-          type: select_option
-          option: Manual Charge
-      - sequence:
-        - action: enphase_envoy_raw_data.send_data
-          data:
-            config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-            endpoint: /admin/lib/acb_config.json
-            method: PUT
-            risk_acknowledged: true
-            test_mode: false
+      - parallel:
+        - sequence:
+          - device_id: 7243064af443eaae599e1a98ef6c25f7
+            domain: number
+            entity_id: 5ca05c1ef7722190111f5a5096e6a102
+            type: set_value
+            value: 100
+          - device_id: 7243064af443eaae599e1a98ef6c25f7
+            domain: number
+            entity_id: 4a32fe12a0ba6be0cf7e9daa955662ad
+            type: set_value
+            value: 95
+          - device_id: 7243064af443eaae599e1a98ef6c25f7
+            domain: number
+            entity_id: 2a30cb54d4928b25ce36b1089506b2bf
+            type: set_value
+            value: 4
+          - device_id: 7243064af443eaae599e1a98ef6c25f7
+            domain: select
+            entity_id: 8cb6de227f4654eeee815f12a7579efa
+            type: select_option
+            option: Manual Charge
+        - sequence:
+          - action: enphase_envoy_raw_data.send_data
             data:
-              acb_sleep:
-              - serial_num: '122047098091'
-                sleep_min_soc: 95
-                sleep_max_soc: 100
-          alias: 122047098091 Charge
-        - action: enphase_envoy_raw_data.send_data
-          data:
-            config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-            endpoint: /admin/lib/acb_config.json
-            method: PUT
-            risk_acknowledged: true
-            test_mode: false
+              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
+              endpoint: /admin/lib/acb_config.json
+              method: PUT
+              risk_acknowledged: true
+              test_mode: false
+              data:
+                acb_sleep:
+                - serial_num: '122047098091'
+                  sleep_min_soc: 95
+                  sleep_max_soc: 100
+            alias: 122047098091 Charge
+          - action: enphase_envoy_raw_data.send_data
             data:
-              acb_sleep:
-              - serial_num: '121917000087'
-                sleep_min_soc: 95
-                sleep_max_soc: 100
-          alias: 121917000087 Charge
+              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
+              endpoint: /admin/lib/acb_config.json
+              method: PUT
+              risk_acknowledged: true
+              test_mode: false
+              data:
+                acb_sleep:
+                - serial_num: '121917000087'
+                  sleep_min_soc: 95
+                  sleep_max_soc: 100
+            alias: 121917000087 Charge
     - conditions:
       - type: is_off
         condition: device
@@ -3406,67 +3364,41 @@
         entity_id: 80aa09f400893520a7232726cae46102
         domain: binary_sensor
       sequence:
-      - sequence:
-        - device_id: 7243064af443eaae599e1a98ef6c25f7
-          domain: number
-          entity_id: c197851bac0b7f5104996b27dd7a1348
-          type: set_value
-          value: 12
-        - device_id: 7243064af443eaae599e1a98ef6c25f7
-          domain: select
-          entity_id: 8cb6de227f4654eeee815f12a7579efa
-          type: select_option
-          option: Maximize Auto Consumption
-      - sequence:
-        - action: enphase_envoy_raw_data.send_data
-          data:
-            config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-            endpoint: /admin/lib/acb_config.json
-            method: DELETE
-            risk_acknowledged: true
-            test_mode: false
+      - parallel:
+        - sequence:
+          - device_id: 7243064af443eaae599e1a98ef6c25f7
+            domain: number
+            entity_id: c197851bac0b7f5104996b27dd7a1348
+            type: set_value
+            value: 12
+          - device_id: 7243064af443eaae599e1a98ef6c25f7
+            domain: select
+            entity_id: 8cb6de227f4654eeee815f12a7579efa
+            type: select_option
+            option: Maximize Auto Consumption
+        - sequence:
+          - action: enphase_envoy_raw_data.send_data
             data:
-              acb_sleep:
-              - serial_num: '122047098091'
-          alias: 122047098091 Discharge
-        - action: enphase_envoy_raw_data.send_data
-          data:
-            config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-            endpoint: /admin/lib/acb_config.json
-            method: DELETE
-            risk_acknowledged: true
-            test_mode: false
+              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
+              endpoint: /admin/lib/acb_config.json
+              method: DELETE
+              risk_acknowledged: true
+              test_mode: false
+              data:
+                acb_sleep:
+                - serial_num: '122047098091'
+            alias: 122047098091 Discharge
+          - action: enphase_envoy_raw_data.send_data
             data:
-              acb_sleep:
-              - serial_num: '121917000087'
-          alias: 121917000087 Discharge
-  - sequence:
-    - action: enphase_envoy_raw_data.send_data
-      data:
-        config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-        endpoint: /admin/lib/acb_config.json
-        method: PUT
-        risk_acknowledged: true
-        test_mode: false
-        data:
-          acb_sleep:
-          - serial_num: '122047098091'
-            sleep_min_soc: 95
-            sleep_max_soc: 100
-      alias: 122047098091 Charge
-    - action: enphase_envoy_raw_data.send_data
-      data:
-        config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-        endpoint: /admin/lib/acb_config.json
-        method: PUT
-        risk_acknowledged: true
-        test_mode: false
-        data:
-          acb_sleep:
-          - serial_num: '121917000087'
-            sleep_min_soc: 95
-            sleep_max_soc: 100
-      alias: 121917000087 Charge
+              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
+              endpoint: /admin/lib/acb_config.json
+              method: DELETE
+              risk_acknowledged: true
+              test_mode: false
+              data:
+                acb_sleep:
+                - serial_num: '121917000087'
+            alias: 121917000087 Discharge
   mode: restart
 - id: '1758208938977'
   alias: Octopus Energy - Auto Set Peak/Off-Peak Tariff
@@ -3639,49 +3571,6 @@
       - target:
           entity_id: input_boolean.botc_muted
         action: input_boolean.turn_off
-  mode: single
-- id: '1765649273376'
-  alias: 'Christmas Tree Lights Track Kitchen Lights '
-  description: ''
-  triggers:
-  - type: changed_states
-    device_id: 294f30f10444bcd2ef6ff9be250834f7
-    entity_id: ac8e60292dbb15a275d20f873030af7e
-    domain: light
-    trigger: device
-  conditions: []
-  actions:
-  - choose:
-    - conditions:
-      - condition: device
-        type: is_on
-        device_id: 294f30f10444bcd2ef6ff9be250834f7
-        entity_id: ac8e60292dbb15a275d20f873030af7e
-        domain: light
-      sequence:
-      - type: turn_on
-        device_id: 4e30ea946a5495f14d38b994caec1da0
-        entity_id: 6c48f769a82fde13b91b83bdc5ddd39f
-        domain: switch
-      - action: switch.turn_on
-        metadata: {}
-        target:
-          device_id:
-          - e117af1a8759c13997886e55fd6f04c3
-          - 4e40123db567ffb641624c13a53b16ee
-        data: {}
-    default:
-    - type: turn_off
-      device_id: 4e30ea946a5495f14d38b994caec1da0
-      entity_id: 6c48f769a82fde13b91b83bdc5ddd39f
-      domain: switch
-    - action: switch.turn_off
-      metadata: {}
-      target:
-        device_id:
-        - e117af1a8759c13997886e55fd6f04c3
-        - 4e40123db567ffb641624c13a53b16ee
-      data: {}
   mode: single
 - id: '1766937352100'
   alias: SDM120CT Modbus Emulator Inverter Communication
