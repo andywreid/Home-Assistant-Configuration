@@ -99,21 +99,21 @@ time:
 
 # EverBlu Meter Component
 # # Using the 'develop' branch (radio-global calibration + device-level entities).
-# external_components:
-#   - source:
-#       type: git
-#       url: https://github.com/genestealer/everblu-meters-esp8266-improved
-#       ref: main
-#       path: ESPHOME-release
-#     components: [ everblu_meter ]
-#     refresh: 0s
-
-# Local copy (previous source) - re-enable if developing the component locally:
 external_components:
   - source:
-      type: local
-      path: ./external_components/
+      type: git
+      url: https://github.com/genestealer/everblu-meters-esp8266-improved
+      ref: main
+      path: ESPHOME-release
     components: [ everblu_meter ]
+    refresh: 0s
+
+# # Local copy (previous source) - re-enable if developing the component locally:
+# external_components:
+#   - source:
+#       type: local
+#       path: ./external_components/
+#     components: [ everblu_meter ]
 
 
 # external_components:
