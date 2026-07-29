@@ -126,6 +126,27 @@ packages:
   wifi: !include common/device_base_wifi.yaml
 
 ##############################################################
+# Logging - per-tag overrides
+##############################################################
+# The global level (${log_level}) is set in common/device_base.yaml.
+#
+# At DEBUG, modbus_server logs one line PER REGISTER PER POLL. The inverter
+# polls all 36 FP32 registers roughly once per second, so that is ~2,200 lines
+# per minute - it drowns out everything else, and pushing that much text out of
+# the UART/API between 9600-baud Modbus frames can delay our responses enough
+# for the inverter to time out.
+#
+# So: keep DEBUG globally for our own components, but silence the Modbus chatter.
+# Raise these back to DEBUG temporarily if you need to trace register traffic.
+logger:
+  logs:
+    modbus_server: WARN
+    modbus: WARN
+    modbus_controller: WARN
+    uart: WARN
+    uart_debug: WARN
+
+##############################################################
 # PINNED COMPONENTS - modbus overhaul (stock release insufficient)
 ##############################################################
 # The stock modbus_server in ESPHome 2026.7.x contains the parser/correctness
@@ -206,7 +227,8 @@ globals:
   - id: safe_defaults_active  # Flag indicating if safe defaults are in effect
     type: bool
     initial_value: 'true'
-  - id: last_modbus_comms_time  # Timestamp of last Modbus communication from inverter
+  - id: last_modbus_comms_time  # Timestamp of last Modbus register read by the inverter
+                                # Stamped in the 0x0000 read_lambda (first register of every poll)
     type: uint32_t
     initial_value: '0'
 
@@ -268,11 +290,30 @@ wifi:
     then:
       - script.execute: apply_safe_defaults
 
-# Also apply safety defaults if Home Assistant API disconnects
+# Also apply safety defaults if Home Assistant API disconnects.
+#
+# IMPORTANT: on_client_disconnected fires for EVERY API client, not just Home
+# Assistant - that includes the ESPHome log viewer, the ESPHome dashboard and
+# any `esphome logs` session. Executing apply_safe_defaults directly here meant
+# that simply opening/closing the logs overwrote active power with the +300 W
+# safe default and fed the inverter fabricated data for a few seconds.
+#
+# So we wait a short grace period and only fall back if NO API client remains
+# (i.e. Home Assistant really is gone). A log viewer closing leaves the HA
+# connection up, so the condition is false and nothing happens.
 api:
   on_client_disconnected:
     then:
-      - script.execute: apply_safe_defaults
+      - delay: 15s
+      - if:
+          condition:
+            not:
+              api.connected:
+          then:
+            - logger.log:
+                level: WARN
+                format: "Home Assistant API disconnected. Applying safe defaults."
+            - script.execute: apply_safe_defaults
 
 ##############################################################
 # UART Configuration
@@ -344,10 +385,13 @@ modbus_server:
       # the Eaton inverter which polls all 72 registers (0x00-0x47)
       
       # Register 0x0000: Line to neutral volts (V)
+      # This is the first register of every inverter poll (FC 0x04, start 0x0000,
+      # 0x48 registers), so it doubles as the heartbeat for the
+      # "Inverter Communication" watchdog below.
       - address: 0x0000
         value_type: FP32
         read_lambda: |-
-
+          id(last_modbus_comms_time) = millis();
           return id(voltage_val);
       
       # Gap registers 0x0002-0x0004 (not used by SDM120CT)
@@ -615,7 +659,6 @@ sensor:
       then:
         - lambda: |-
             if (isnan(x)) return;
-            id(last_modbus_comms_time) = millis();
             id(safe_defaults_active) = false;
             id(last_update_time) = millis();
             id(active_power_val) = x * -1.0;
@@ -646,14 +689,22 @@ binary_sensor:
     lambda: |-
       return id(safe_defaults_active);
   
+  # Stamped by the 0x0000 register read_lambda, i.e. by real Modbus traffic from
+  # the inverter (it polls roughly once per second). Do NOT stamp this from a
+  # Home Assistant sensor callback: HA only pushes on state *change*, so a
+  # steady power reading would look like a comms failure.
   - platform: template
     name: "Inverter Communication"
     id: inverter_comms_status
     device_class: problem
+    filters:
+      - delayed_on: 10s
+      - delayed_off: 5s
     lambda: |-
-      uint32_t now = millis();
-      uint32_t time_since_comms = now - id(last_modbus_comms_time);
-      // Return true (problem) if no communication for 90+ seconds
-      return time_since_comms > 90000;
+      // No poll seen yet since boot - not a fault.
+      if (id(last_modbus_comms_time) == 0) return false;
+      uint32_t time_since_comms = millis() - id(last_modbus_comms_time);
+      // Return true (problem) if no communication for 30+ seconds
+      return time_since_comms > 30000;
 
 
