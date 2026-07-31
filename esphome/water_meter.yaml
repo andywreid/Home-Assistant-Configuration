@@ -129,7 +129,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/genestealer/everblu-meters-esp8266-improved
-      ref: fix/cc1101-spi-link-selftest
+      ref: main
       path: ESPHOME-release
     components: [ everblu_meter ]
     refresh: 0s
@@ -200,6 +200,11 @@ everblu_meter:
       name: "Radio Deep Frequency Scan"
     reset_frequency_button:
       name: "Radio Reset Frequency Offset"
+      
+    # Prints a full wiring/radio diagnostic block to the log. Press this and attach the
+    # output when reporting a problem.
+    diagnostic_report_button:
+      name: "Diagnostic Report"
 
     volume:
       name: "${meter_1_prefix} Water Volume"
