@@ -365,8 +365,9 @@ display:
     address: 0x3C
     id: oled_display
     rotation: 0°
-    # Refresh fast enough for the battery flow animation to look smooth.
-    update_interval: 100ms
+    # Slow, calm refresh. Fast refreshes made the battery flow animation look
+    # like the whole panel was flashing left-to-right.
+    update_interval: 500ms
     # M5Stack 1.3" SH1107 panel needs these to avoid the shifted/half-corrupted
     # image. See: https://github.com/esphome/issues/issues/2913
     flip_x: false
@@ -444,6 +445,10 @@ display:
             it.fill(COLOR_ON);
           }
 
+          // HA sensors publish NAN when the source entity is 'unavailable'.
+          // has_state() stays true in that case, so test the value instead.
+          auto ok = [](float v) -> bool { return !std::isnan(v); };
+
           // Draw a horizontal battery icon filled to pct (0-100). The bar always
           // shows the true level; dir animates flow across the fill:
           //   +1 charging   -> pulses sweep left->right (energy flowing in)
@@ -455,6 +460,10 @@ display:
             it.rectangle(x, y, w, h, fg);                                   // body
             it.filled_rectangle(x + w, y + (h - term_h) / 2, term_w, term_h, fg); // terminal
             int ix = x + 2, iy = y + 2, iw = w - 4, ih = h - 4;
+            // Never let a NaN reach the integer maths below - (int)NaN is
+            // undefined and produced a garbage fill width / runaway loop.
+            if (std::isnan(pct)) pct = 0.0f;
+            if (std::isnan(pct_min)) pct_min = 0.0f;
             // Rescale so the bar reads empty at pct_min and full at 100 (e.g. the
             // house battery only discharges down to its backup level, not 0%).
             float span = 100.0f - pct_min;
@@ -462,13 +471,15 @@ display:
             if (pct < 0) pct = 0;
             if (pct > 100) pct = 100;
             int fillw = (int)(iw * pct / 100.0f + 0.5f);
+            if (fillw < 0) fillw = 0;
+            if (fillw > iw) fillw = iw;
             if (fillw > 0) it.filled_rectangle(ix, iy, fillw, ih, fg);      // true level
             // Flow animation: a scrolling barber-pole of gaps over the fill.
             if (dir != 0 && fillw > 2) {
               auto bg = id(display_invert) ? COLOR_ON : COLOR_OFF;
-              const int period = 6;   // spacing between pulses (px)
+              const int period = 10;  // spacing between pulses (px)
               const int pw = 2;       // pulse (gap) width (px)
-              int t = millis() / 100; // advance ~1px every 100ms
+              int t = millis() / 500; // advance ~1px every 500ms
               int phase = (((dir < 0 ? -t : t) % period) + period) % period;
               for (int gx = -period; gx <= fillw; gx += period) {
                 int start = ix + gx + phase;
@@ -481,7 +492,7 @@ display:
           };
 
           // ---- Grid (net consumption): +ve import, -ve export ----
-          if (id(grid_power).has_state()) {
+          if (ok(id(grid_power).state)) {
             float g = id(grid_power).state;
             if (g > 10.0f) {
               it.printf(0, 0, id(font_roboto), fg, "Grd I %.0fW", g);
@@ -495,7 +506,7 @@ display:
           }
 
           // ---- Solar production ----
-          if (id(solar_power).has_state()) {
+          if (ok(id(solar_power).state)) {
             it.printf(0, 13, id(font_roboto), fg, "Sol %.0fW", id(solar_power).state);
           } else {
             it.printf(0, 13, id(font_roboto), fg, "Sol --");
@@ -504,18 +515,18 @@ display:
           // ---- House battery (Eaton xStorage) ----
           // db2_energy_meters_power_a: +ve = discharging, -ve = charging.
           int house_dir = 0;
-          if (id(house_power).has_state()) {
+          if (ok(id(house_power).state)) {
             if (id(house_power).state < -10.0f) house_dir = 1;             // charging
             else if (id(house_power).state > 10.0f) house_dir = -1;        // discharging
           }
-          if (id(house_battery).has_state()) {
+          if (ok(id(house_battery).state)) {
             it.printf(0, 28, id(font_roboto), fg, "Bat %.0f%%", id(house_battery).state);
             draw_batt(2, 41, id(house_battery).state, house_dir,
-                      id(battery_backup_level).has_state() ? id(battery_backup_level).state : 0.0f);
+                      ok(id(battery_backup_level).state) ? id(battery_backup_level).state : 0.0f);
           } else {
             it.printf(0, 28, id(font_roboto), fg, "Bat --");
           }
-          if (id(house_power).has_state()) {
+          if (ok(id(house_power).state)) {
             float p = id(house_power).state;
             const char *state = (p > 10.0f) ? "Dis" : (p < -10.0f) ? "Chg" : "Idle";
             it.printf(0, 55, id(font_roboto), fg, " %s %.0fW", state, fabs(p));
@@ -531,14 +542,14 @@ display:
           }
 
           // ---- Car (Skoda Enyaq) ----
-          int car_dir = (id(car_charge_power).has_state() && id(car_charge_power).state > 0.1f) ? 1 : 0;
-          if (id(car_battery).has_state()) {
+          int car_dir = (ok(id(car_charge_power).state) && id(car_charge_power).state > 0.1f) ? 1 : 0;
+          if (ok(id(car_battery).state)) {
             it.printf(0, 84, id(font_roboto), fg, "Car %.0f%%", id(car_battery).state);
             draw_batt(2, 97, id(car_battery).state, car_dir);
           } else {
             it.printf(0, 84, id(font_roboto), fg, "Car --");
           }
-          if (id(car_charge_power).has_state()) {
+          if (ok(id(car_charge_power).state)) {
             it.printf(0, 111, id(font_roboto), fg, " %.1fkW", id(car_charge_power).state);
           }
 
