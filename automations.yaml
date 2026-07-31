@@ -1632,12 +1632,6 @@
     takes the image when the notification is delivered, which may be later if signal
     is poor.
   triggers:
-  - type: opened
-    device_id: 2aadd916ad46270ecda5ab407a461e6c
-    entity_id: binary_sensor.parcel_box_contact
-    domain: binary_sensor
-    enabled: false
-    trigger: device
   - entity_id:
     - binary_sensor.parcel_box_contact
     from: 'off'
