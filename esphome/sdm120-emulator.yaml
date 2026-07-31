@@ -30,10 +30,10 @@
 # - Complete SDM120CT register map (0x0000 to 0x0158)
 # - Modbus RTU server (Function Code 04 - Read Input Registers)
 # - Home Assistant integration for real-time value control
-# - Voltage, Current, Active/Apparent/Reactive Power
-# - Power Factor, Phase Angle, Frequency
-# - Import/Export Energy counters
-# - Total Active/Reactive Energy registers
+# - Live from Home Assistant: Active Power, Voltage, Current, Power Factor,
+#   Frequency
+# - Fixed values: Apparent/Reactive Power, Phase Angle, Import/Export Energy,
+#   Total Active/Reactive Energy
 #
 # Important note (operation with Eaton inverter):
 # - The only register that materially affects inverter behavior in
@@ -41,11 +41,49 @@
 # - In testing, the other values are not used by the inverter and are
 #   effectively superfluous. We still populate them for completeness.
 #
+##############################################################
+# RESPONSE DELAY - the single most important thing in this file
+##############################################################
+# The Eaton will not accept a reply that arrives too soon after its request.
+# Answer in ~2ms and it silently discards the frame, stops trusting the meter
+# and backs off from ~97 polls/min to ~26. Answer ~200-330ms later and it is
+# perfectly happy. This is implemented as a delay() in the 0x0000 read_lambda
+# and is tunable live via the "Response Delay" number entity.
+#
+# Diagnosed 2026-07-31 after months of "works for a while, then the inverter
+# loses the meter":
+#
+# - The pinned modbus PR #12614 answers immediately by design. Its own source
+#   says so: "turnaround_delay_ms_ ... is only used by ModbusClientHub.
+#   Servers respond immediately." The delay is client-only; there is NO
+#   server-side config option, hence the lambda.
+# - For a long time the only apparent fix was enabling DEBUG logging on
+#   modbus_server. That was never a logging fix. At DEBUG the component emits
+#   36 register lines per poll, and pushing ~3.4kB out of UART0 at 115200 baud
+#   blocks the register walk for ~300ms:
+#       (36 lines x ~95 bytes) / (115200/10 bytes per sec) = ~297ms
+#   Measured turnaround with logging on was 326ms. That matched the inverter's
+#   requirement by pure accident.
+# - This also explains the intermittency. Turnaround was never a fixed number,
+#   it was whatever the main loop cost that second. API traffic from Home
+#   Assistant, Wi-Fi retransmissions and sensor publishes all padded it. So a
+#   Home Assistant restart, by removing that incidental load, made the ESP
+#   FASTER and broke the link - which looked like "HA rebooted and killed the
+#   meter" but was the opposite: HA had been propping up the timing.
+# - Corollary: reducing API chatter (throttling the HA sensor imports) makes
+#   this fault MORE likely, not less. Do not treat a working meter as evidence
+#   that the loop is allowed to get busier or quieter.
+#
+# Symptom to watch: the "Inverter Poll Rate" diagnostic sensor. ~97 polls/min
+# is healthy; anything near 26 means the reply is being ignored.
+##############################################################
+#
 # Home Assistant Integration:
 # - Values are imported directly from Home Assistant sensors over the native
 #   API (see the 'sensor:' homeassistant platform entries below). This
 #   replaces the previous approach of a Home Assistant automation writing to
 #   template number entities several times per minute.
+# - Active Power is throttled to 5s; the cosmetic registers to 30s.
 # - The ESP itself does not measure these values; it only serves them to the
 #   inverter.
 #
@@ -103,7 +141,7 @@ substitutions:
   subnet: 255.255.255.0
 
   # Debug Logging
-  log_level: WARN
+  log_level: DEBUG
 
   # Sensor Update Interval
   sensor_update_interval: 1min
@@ -116,8 +154,7 @@ esp32:
   board: esp32doit-devkit-v1
   framework:
     type: arduino
-
-
+    
 ##############################################################
 # Import Shared Code (Common Components)
 ##############################################################
@@ -130,14 +167,14 @@ packages:
 ##############################################################
 # The global level (${log_level}) is set in common/device_base.yaml.
 #
-# At DEBUG, modbus_server logs one line PER REGISTER PER POLL. The inverter
-# polls all 36 FP32 registers roughly once per second, so that is ~2,200 lines
-# per minute - it drowns out everything else, and pushing that much text out of
-# the UART/API between 9600-baud Modbus frames can delay our responses enough
-# for the inverter to time out.
+# At DEBUG, modbus_server logs one line PER REGISTER PER POLL - roughly 2,200
+# lines per minute, which drowns out everything else.
 #
-# So: keep DEBUG globally for our own components, but silence the Modbus chatter.
-# Raise these back to DEBUG temporarily if you need to trace register traffic.
+# HISTORICAL NOTE: for a long time enabling these logs was the only way the
+# inverter would see the meter, and silencing them broke it. That was not a
+# logging problem - the ~330ms the log lines added between the request and the
+# reply was accidentally supplying the response delay the Eaton needs. That
+# delay is now explicit in the 0x0000 read_lambda, so these can stay at WARN.
 logger:
   logs:
     modbus_server: WARN
@@ -167,6 +204,8 @@ logger:
 #   2. Rename 'server_courtesy_response' -> 'courtesy_response'.
 #   3. Rename 'server_registers'         -> 'registers'.
 #   4. Re-flash and confirm the inverter keeps the meter.
+#   5. Re-check the Response Delay (see header). A stock component with
+#      different timing may need more, less, or none of it.
 external_components:
   - source: github://pr#12614
     components: [uart, modbus, modbus_controller, modbus_server]
@@ -180,8 +219,8 @@ external_components:
 # Global Variables
 ##############################################################
 # These store the simulated SDM120CT meter values that are
-# exposed via Modbus registers. Values can be controlled via
-# Home Assistant template number entities (defined below).
+# exposed via Modbus registers. Values are driven by the Home Assistant
+# sensor imports further down, or by apply_safe_defaults.
 # Initial values represent typical UK single-phase power:
 globals:
   - id: voltage_val        # Register 0x0000: Line voltage (V)
@@ -201,7 +240,9 @@ globals:
     initial_value: '310.0'
   - id: reactive_power_val # Register 0x0018: Reactive power (VAr)
     type: float
-    initial_value: '0.0'
+    # Not imported from HA. sqrt(310^2 - 300^2), so it stays consistent with the
+    # apparent/active power and 0.97 PF defaults rather than reading as 0.
+    initial_value: '78.1'
   - id: power_factor_val   # Register 0x001E: Power factor (0-1)
     type: float
     # Positive PF to reflect export direction
@@ -231,6 +272,18 @@ globals:
                                 # Stamped in the 0x0000 read_lambda (first register of every poll)
     type: uint32_t
     initial_value: '0'
+  - id: poll_latency_ms         # Time to walk 0x0000 -> 0x0046, i.e. how long we made the inverter wait
+    type: uint32_t
+    initial_value: '0'
+  - id: modbus_poll_count       # Monotonic count of polls seen, incremented at 0x0000
+    type: uint32_t
+    initial_value: '0'
+  - id: last_poll_count_sample  # Previous value of modbus_poll_count, for the rate sensor
+    type: uint32_t
+    initial_value: '0'
+  - id: response_delay_ms       # Pre-response stall, see the 0x0000 read_lambda
+    type: uint32_t
+    initial_value: '200'
 
 ##############################################################
 # Safety defaults watchdog
@@ -248,7 +301,7 @@ script:
           id(current_val) = 1.29;           // A (export)
           id(active_power_val) = 300.0;     // W (export)
           id(apparent_power_val) = 310.0;   // VA
-          id(reactive_power_val) = 0.0;     // VAr
+          id(reactive_power_val) = 78.1;    // VAr
           id(power_factor_val) = 0.97;      // PF (export)
           id(frequency_val) = 50.0;         // Hz
           id(import_energy_val) = 15.0;     // kWh
@@ -284,8 +337,18 @@ interval:
     then:
       - script.execute: check_update_watchdog
 
-# Also apply safety defaults if Wi-Fi disconnects
+# Also apply safety defaults if Wi-Fi disconnects.
+#
+# reboot_timeout MUST be disabled here (the shared package defaults it to 5min).
+# Answering the inverter needs no network at all, so a Wi-Fi outage must not
+# take the meter off the RS-485 bus. The safe-defaults watchdog already covers
+# stale data.
+#
+# power_save_mode: none - modem sleep windows add loop latency, and at 9600 baud
+# a 149-byte response already occupies ~155ms of the inverter's poll window.
 wifi:
+  reboot_timeout: 0s
+  power_save_mode: none
   on_disconnect:
     then:
       - script.execute: apply_safe_defaults
@@ -301,7 +364,10 @@ wifi:
 # So we wait a short grace period and only fall back if NO API client remains
 # (i.e. Home Assistant really is gone). A log viewer closing leaves the HA
 # connection up, so the condition is false and nothing happens.
+#
+# reboot_timeout disabled for the same reason as the Wi-Fi one above.
 api:
+  reboot_timeout: 0s
   on_client_disconnected:
     then:
       - delay: 15s
@@ -353,7 +419,7 @@ modbus:
 # Implements SDM120CT single-phase energy meter protocol
 # Address: 0x01 (SDM120CT default)
 # Function Code: 04 (Read Input Registers)
-# The Eaton inverter polls 72 registers (0x00-0x47) every 2-3 seconds
+# The Eaton inverter polls 72 registers (0x00-0x47) roughly every 600ms
 modbus_server:
   - id: sdm120ct_server
     modbus_id: modbus_server_01
@@ -388,10 +454,19 @@ modbus_server:
       # This is the first register of every inverter poll (FC 0x04, start 0x0000,
       # 0x48 registers), so it doubles as the heartbeat for the
       # "Inverter Communication" watchdog below.
+      #
+      # The delay() is load-bearing. PR #12614 answers immediately (its own
+      # comment: "Servers respond immediately"), which lands the reply ~2ms after
+      # the request - too fast for the Eaton, which then ignores it and backs off
+      # to ~26 polls/min. Measured 2026-07-31: ~330ms turnaround (which DEBUG
+      # logging was accidentally providing) gives a healthy ~97 polls/min.
+      # Tune via the "Response Delay" number entity to find the real minimum.
       - address: 0x0000
         value_type: FP32
         read_lambda: |-
           id(last_modbus_comms_time) = millis();
+          id(modbus_poll_count)++;
+          delay(id(response_delay_ms));
           return id(voltage_val);
       
       # Gap registers 0x0002-0x0004 (not used by SDM120CT)
@@ -555,9 +630,12 @@ modbus_server:
           return 0.0;
       
       # Frequency (Register 0x0046) - 32-bit float
+      # Last register of the inverter's 0x48-register poll, so it closes the
+      # latency measurement opened at 0x0000.
       - address: 0x0046
         value_type: FP32
         read_lambda: |-
+          id(poll_latency_ms) = millis() - id(last_modbus_comms_time);
           return id(frequency_val);
       
       # Import Energy (Register 0x0048) - 32-bit float
@@ -593,68 +671,32 @@ modbus_server:
 ##############################################################
 # Home Assistant Sensor Imports
 ##############################################################
-# Values are imported directly from Home Assistant sensors over the native
-# API. This replaces the previous approach where a Home Assistant automation
-# wrote to template number entities several times per minute.
+# The native API is push-based: Home Assistant sends a state_changed event the
+# moment an entity updates, so there is no polling interval to tune. The
+# throttle filters below are what bound the event rate.
 #
-# Each imported sensor updates its corresponding global, stamps
-# last_update_time for the 5-minute watchdog, and clears the failsafe flag.
-# A NaN guard skips updates when the source sensor is unavailable, so the
-# watchdog will fall back to safe defaults if data stops arriving.
+# Two tiers:
+#   Active Power - 5s.  The only register the inverter acts on.
+#   Everything else - 30s. Cosmetic, so they cost ~1/6th the API traffic.
 #
-# Note: The only value that materially affects the inverter is 'Active Power'.
-# The other values are imported for completeness.
+# IMPORTANT: only Active Power stamps last_update_time. If the cosmetic sensors
+# stamped it too, a live voltage feed would keep the 5-minute staleness watchdog
+# satisfied while active power sat frozen - which is the value that matters.
 #
-# Active Power sign convention: Home Assistant reports inverter demand power
-# where positive = import. The meter emulator expects positive = export, so
-# the value is inverted (multiplied by -1) on import.
+# A NaN guard skips updates when a source sensor is unavailable, so the watchdog
+# falls back to safe defaults if active power stops arriving.
+#
+# Sign conventions (matching the superseded 'Update SDM120CT Meter Emulator
+# Values' automation): Home Assistant reports positive = import, the meter
+# emulator expects positive = export, so power and current are inverted.
 sensor:
-  # Line voltage (V) <- sensor.solar_panels_voltage_net_consumption_ct
-  - platform: homeassistant
-    id: ha_voltage
-    entity_id: sensor.solar_panels_voltage_net_consumption_ct
-    internal: true
-    on_value:
-      then:
-        - lambda: |-
-            if (isnan(x)) return;
-            id(safe_defaults_active) = false;
-            id(last_update_time) = millis();
-            id(voltage_val) = x;
-
-  # Frequency (Hz) <- sensor.solar_panels_frequency_production_ct
-  - platform: homeassistant
-    id: ha_frequency
-    entity_id: sensor.solar_panels_frequency_production_ct
-    internal: true
-    on_value:
-      then:
-        - lambda: |-
-            if (isnan(x)) return;
-            id(safe_defaults_active) = false;
-            id(last_update_time) = millis();
-            id(frequency_val) = x;
-
-  # Power Factor <- sensor.solar_panels_powerfactor_net_consumption_ct
-  - platform: homeassistant
-    id: ha_power_factor
-    entity_id: sensor.solar_panels_powerfactor_net_consumption_ct
-    internal: true
-    on_value:
-      then:
-        - lambda: |-
-            if (isnan(x)) return;
-            id(safe_defaults_active) = false;
-            id(last_update_time) = millis();
-            id(power_factor_val) = x;
-
   # Active Power (W) <- sensor.inverter_demand_power
-  # Inverted so that export is positive (HA reports positive = import).
-  # This is the only value the Eaton inverter actually uses.
   - platform: homeassistant
     id: ha_active_power
     entity_id: sensor.inverter_demand_power
     internal: true
+    filters:
+      - throttle: 5s
     on_value:
       then:
         - lambda: |-
@@ -662,6 +704,111 @@ sensor:
             id(safe_defaults_active) = false;
             id(last_update_time) = millis();
             id(active_power_val) = x * -1.0;
+
+  # Line voltage (V)
+  - platform: homeassistant
+    id: ha_voltage
+    entity_id: sensor.solar_panels_voltage_net_consumption_ct
+    internal: true
+    filters:
+      - throttle: 30s
+    on_value:
+      then:
+        - lambda: |-
+            if (isnan(x)) return;
+            id(voltage_val) = x;
+
+  # Line current (A)
+  - platform: homeassistant
+    id: ha_current
+    entity_id: sensor.solar_panels_net_consumption_ct_current
+    internal: true
+    filters:
+      - throttle: 30s
+    on_value:
+      then:
+        - lambda: |-
+            if (isnan(x)) return;
+            id(current_val) = x * -1.0;
+
+  # Power factor
+  - platform: homeassistant
+    id: ha_power_factor
+    entity_id: sensor.solar_panels_powerfactor_net_consumption_ct
+    internal: true
+    filters:
+      - throttle: 30s
+    on_value:
+      then:
+        - lambda: |-
+            if (isnan(x)) return;
+            id(power_factor_val) = x;
+
+  # Frequency (Hz)
+  - platform: homeassistant
+    id: ha_frequency
+    entity_id: sensor.solar_panels_frequency_production_ct
+    internal: true
+    filters:
+      - throttle: 30s
+    on_value:
+      then:
+        - lambda: |-
+            if (isnan(x)) return;
+            id(frequency_val) = x;
+
+  # Diagnostic: milliseconds spent assembling the last poll response.
+  # Returns NaN rather than a stale figure once polling stops - otherwise this
+  # latches the last good value forever and looks healthy while the bus is dead.
+  - platform: template
+    name: "Poll Response Latency"
+    id: poll_response_latency
+    unit_of_measurement: "ms"
+    state_class: measurement
+    accuracy_decimals: 0
+    entity_category: "diagnostic"
+    update_interval: 10s
+    lambda: |-
+      if (id(last_modbus_comms_time) == 0) return NAN;
+      if (millis() - id(last_modbus_comms_time) > 30000) return NAN;
+      return id(poll_latency_ms);
+
+  # Diagnostic: polls actually received in the last minute. This is the liveness
+  # check - a healthy link sits near 100/min. Zero means the inverter has stopped
+  # asking, which is a different fault to it asking and rejecting our answer.
+  - platform: template
+    name: "Inverter Poll Rate"
+    id: inverter_poll_rate
+    unit_of_measurement: "polls/min"
+    state_class: measurement
+    accuracy_decimals: 0
+    entity_category: "diagnostic"
+    update_interval: 60s
+    lambda: |-
+      uint32_t count = id(modbus_poll_count);
+      uint32_t delta = count - id(last_poll_count_sample);
+      id(last_poll_count_sample) = count;
+      return delta;
+
+# Live tuning for the pre-response delay - find the lowest value the Eaton
+# tolerates without reflashing. Watch Inverter Poll Rate after each change:
+# ~97 polls/min is healthy, anything near 26 means the reply is being ignored.
+number:
+  - platform: template
+    name: "Response Delay"
+    id: response_delay_number
+    unit_of_measurement: "ms"
+    entity_category: "config"
+    optimistic: true
+    restore_value: true
+    initial_value: 200
+    min_value: 0
+    max_value: 500
+    step: 10
+    set_action:
+      then:
+        - lambda: |-
+            id(response_delay_ms) = (uint32_t) x;
 
 # Setup mode toggle
 switch:
