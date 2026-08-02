@@ -1698,9 +1698,14 @@
   mode: single
 - id: '1694727006658'
   alias: House Doorbell - External Notify
-  description: Take photo first, rather than using camera_proxy, as camera_proxy only
-    takes the image when the notification is delivered, which may be later if signal
-    is poor.
+  description: Snapshots the front door camera at trigger time and sends that static
+    file, rather than /api/camera_proxy/<camera>, which the companion app only fetches
+    when the notification is rendered - a slow push or poor signal meant the photo
+    showed the doorstep long after the caller had left. Snapshots are written to /config/www/doorbell/
+    and served from /local/doorbell/ - files under www are served WITHOUT authentication,
+    hence the randomised filenames. Files are unique per event so they accumulate
+    and need periodic housekeeping. Jinja range() is capped at 100000 in the HA sandbox,
+    so the random suffix uses range(10000, 99999).
   triggers:
   - type: turned_on
     device_id: b03ab12c707340e8849888171a79caed
@@ -1709,7 +1714,18 @@
     trigger: device
   conditions: []
   actions:
+  - variables:
+      stamp: '{{ now().strftime(''%Y%m%d-%H%M%S'') }}-{{ range(10000, 99999) | random
+        }}'
+      snapshot_file: /config/www/doorbell/front-{{ stamp }}.jpg
+      snapshot_url: /local/doorbell/front-{{ stamp }}.jpg
   - parallel:
+    - action: camera.snapshot
+      target:
+        entity_id: camera.p3265_lv_0
+      data:
+        filename: '{{ snapshot_file }}'
+      continue_on_error: true
     - if:
       - condition: state
         entity_id: sensor.rich_mob_app_ringer_mode
@@ -1759,7 +1775,7 @@
   - parallel:
     - data:
         data:
-          image: /api/camera_proxy/camera.p3265_lv_0
+          image: '{{ snapshot_url }}'
           color: red
           channel: Doorbell
           vibrationPattern: 100,200,100,100,75,25,100,200,100,500,100,200,100,500
@@ -1775,7 +1791,7 @@
       action: notify.mobile_app_rich_mob_app
     - data:
         data:
-          image: /api/camera_proxy/camera.p3265_lv_0
+          image: '{{ snapshot_url }}'
           color: red
           channel: Doorbell
           vibrationPattern: 100,200,100,100,75,25,100,200,100,500,100,200,100,500
@@ -1792,7 +1808,14 @@
   mode: single
 - id: '1694790204906'
   alias: Front door opened with no one home
-  description: ''
+  description: Snapshots the front door camera at trigger time and sends that static
+    file, rather than /api/camera_proxy/<camera>, which the companion app only fetches
+    when the notification is rendered - a slow push or poor signal meant the photo
+    showed the doorway long after the person had moved on. Snapshots are written to
+    /config/www/front_door/ and served from /local/front_door/ - files under www are
+    served WITHOUT authentication, hence the randomised filenames. Files are unique
+    per event so they accumulate and need periodic housekeeping. Jinja range() is
+    capped at 100000 in the HA sandbox, so the random suffix uses range(10000, 99999).
   triggers:
   - type: opened
     device_id: 86b815b15cbf84a75984db3b46f6cc17
@@ -1810,36 +1833,49 @@
       zone: zone.home
     enabled: true
   actions:
-  - data:
-      title: Front Door
-      message: Door opened, but no one is home!
-      data:
-        image: /api/camera_proxy/camera.p3265_lv_0
-        color: red
-        channel: DoorOpen1
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: high
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:door
-    action: notify.mobile_app_rich_mob_app
-  - data:
-      title: Front Door
-      message: Door opened, but no one is home!
-      data:
-        image: /api/camera_proxy/camera.p3265_lv_0
-        color: red
-        channel: DoorOpen1
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: high
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:door
-    action: notify.mobile_app_lucy_mob_app
+  - variables:
+      stamp: '{{ now().strftime(''%Y%m%d-%H%M%S'') }}-{{ range(10000, 99999) | random
+        }}'
+      snapshot_file: /config/www/front_door/front-{{ stamp }}.jpg
+      snapshot_url: /local/front_door/front-{{ stamp }}.jpg
+  - action: camera.snapshot
+    target:
+      entity_id: camera.p3265_lv_0
+    data:
+      filename: '{{ snapshot_file }}'
+    continue_on_error: true
+  - parallel:
+    - data:
+        title: Front Door
+        message: Door opened, but no one is home!
+        data:
+          image: '{{ snapshot_url }}'
+          color: red
+          channel: DoorOpen1
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: high
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:door
+      action: notify.mobile_app_rich_mob_app
+    - data:
+        title: Front Door
+        message: Door opened, but no one is home!
+        data:
+          image: '{{ snapshot_url }}'
+          color: red
+          channel: DoorOpen1
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: high
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:door
+      action: notify.mobile_app_lucy_mob_app
   mode: single
 - id: '1694795158536'
   alias: Back door opened but no one is home
-  description: ''
+  description: Snapshots the back garden camera at trigger time. See Front door automation
+    for full notes on the /local/ path, unauthenticated serving, and file housekeeping.
   triggers:
   - type: opened
     device_id: dd6c9ee012d55a6e6f1b0ef375270d86
@@ -1857,33 +1893,44 @@
       zone: zone.home
     enabled: true
   actions:
-  - data:
-      title: Back Door
-      message: Back door opened, but no one is home!
-      data:
-        image: /api/camera_proxy/camera.p3225_lv_mk_ii_1
-        color: red
-        channel: BackDoorOpen
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: high
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:door
-    action: notify.mobile_app_rich_mob_app
-    enabled: true
-  - data:
-      title: Back Door
-      message: Back door opened, but no one is home!
-      data:
-        image: /api/camera_proxy/camera.p3225_lv_mk_ii_1
-        color: red
-        channel: BackDoorOpen
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: high
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:door
-    action: notify.mobile_app_lucy_mob_app
+  - variables:
+      stamp: '{{ now().strftime(''%Y%m%d-%H%M%S'') }}-{{ range(10000, 99999) | random
+        }}'
+      snapshot_file: /config/www/back_door/back-{{ stamp }}.jpg
+      snapshot_url: /local/back_door/back-{{ stamp }}.jpg
+  - action: camera.snapshot
+    target:
+      entity_id: camera.p3225_lv_mk_ii_1
+    data:
+      filename: '{{ snapshot_file }}'
+    continue_on_error: true
+  - parallel:
+    - data:
+        title: Back Door
+        message: Back door opened, but no one is home!
+        data:
+          image: '{{ snapshot_url }}'
+          color: red
+          channel: BackDoorOpen
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: high
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:door
+      action: notify.mobile_app_rich_mob_app
+    - data:
+        title: Back Door
+        message: Back door opened, but no one is home!
+        data:
+          image: '{{ snapshot_url }}'
+          color: red
+          channel: BackDoorOpen
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: high
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:door
+      action: notify.mobile_app_lucy_mob_app
   mode: single
 - id: '1696178796762'
   alias: Living Room TV Speakers Auto On-Off
@@ -2017,7 +2064,8 @@
   mode: restart
 - id: '1697311647945'
   alias: Garage door opened but no one is home
-  description: ''
+  description: Snapshots the garage camera at trigger time. See Front door automation
+    for full notes on the /local/ path, unauthenticated serving, and file housekeeping.
   triggers:
   - type: opened
     device_id: 6d3f659d3b1cf6534dc09fa4fcca868d
@@ -2035,38 +2083,44 @@
       zone: zone.home
     enabled: true
   actions:
-  - data:
-      filename: /media/garage_sensor.jpg
-    action: camera.snapshot
+  - variables:
+      stamp: '{{ now().strftime(''%Y%m%d-%H%M%S'') }}-{{ range(10000, 99999) | random
+        }}'
+      snapshot_file: /config/www/garage/garage-{{ stamp }}.jpg
+      snapshot_url: /local/garage/garage-{{ stamp }}.jpg
+  - action: camera.snapshot
     target:
-      device_id: 7b90f64243d21822c3e6bbfc339fad0a
-    enabled: false
-  - data:
-      title: Garage Door
-      message: Garage Door opened, but no one is home!
-      data:
-        image: /api/camera_proxy/camera.p3224_lve_0
-        color: red
-        channel: DoorOpen3
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: high
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:door
-    action: notify.mobile_app_rich_mob_app
-  - data:
-      title: Garage Door
-      message: Garage Door opened, but no one is home!
-      data:
-        image: /api/camera_proxy/camera.p3224_lve_0
-        color: red
-        channel: DoorOpen3
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: high
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:door
-    action: notify.mobile_app_lucy_mob_app
+      entity_id: camera.p3224_lve_0
+    data:
+      filename: '{{ snapshot_file }}'
+    continue_on_error: true
+  - parallel:
+    - data:
+        title: Garage Door
+        message: Garage Door opened, but no one is home!
+        data:
+          image: '{{ snapshot_url }}'
+          color: red
+          channel: DoorOpen3
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: high
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:door
+      action: notify.mobile_app_rich_mob_app
+    - data:
+        title: Garage Door
+        message: Garage Door opened, but no one is home!
+        data:
+          image: '{{ snapshot_url }}'
+          color: red
+          channel: DoorOpen3
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: high
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:door
+      action: notify.mobile_app_lucy_mob_app
   mode: single
 - id: '1697388186314'
   alias: Energenie eTRV Error Handler
@@ -4144,4 +4198,202 @@
           alias: 121917000087 Discharge
     - conditions: []
       sequence: []
+  mode: single
+- id: '1785606041263'
+  alias: Notify that tumble dryer finished
+  description: Notify when the tumble dryer cycle has completed
+  triggers:
+  - trigger: state
+    entity_id:
+    - binary_sensor.tumble_dryer_running
+    from:
+    - 'on'
+    to:
+    - 'off'
+    for:
+      hours: 0
+      minutes: 5
+      seconds: 0
+  conditions: []
+  actions:
+  - action: notify.mobile_app_rich_mob_app
+    data:
+      title: Tumble dryer finished
+      message: 'The tumble dryer has finished its cycle. {{ now().strftime(''%Y-%m-%d
+        %I:%M %p'') }}
+
+        '
+      data:
+        color: white
+        channel: LaundryDry
+        vibrationPattern: 100,500,100,500,100,500
+        importance: high
+        visibility: public
+        notification_icon: mdi:tumble-dryer
+        ttl: 0
+        priority: high
+        sticky: 'true'
+  - action: notify.mobile_app_lucy_mob_app
+    data:
+      title: Tumble dryer finished
+      message: 'The tumble dryer has finished its cycle. {{ now().strftime(''%Y-%m-%d
+        %I:%M %p'') }}
+
+        '
+      data:
+        color: white
+        channel: LaundryDry
+        vibrationPattern: 100,500,100,500,100,500
+        importance: high
+        visibility: public
+        notification_icon: mdi:tumble-dryer
+        ttl: 0
+        priority: high
+        sticky: 'true'
+  mode: single
+- id: '1785606560191'
+  alias: Notify that washing machine finished
+  description: Notify when the tumble dryer cycle has completed
+  triggers:
+  - trigger: state
+    entity_id:
+    - binary_sensor.kitchen_washing_machine_running
+    from:
+    - 'on'
+    to:
+    - 'off'
+    for:
+      hours: 0
+      minutes: 5
+      seconds: 0
+  conditions: []
+  actions:
+  - action: notify.mobile_app_rich_mob_app
+    data:
+      title: Washing machine finished
+      message: 'The washing machine has finished its cycle. {{ now().strftime(''%Y-%m-%d
+        %I:%M %p'') }}
+
+        '
+      data:
+        color: white
+        channel: LaundryWash
+        vibrationPattern: 100,500,100,500,100,500
+        importance: high
+        visibility: public
+        notification_icon: mdi:washing-machine
+        ttl: 0
+        priority: high
+        sticky: 'true'
+  - action: notify.mobile_app_lucy_mob_app
+    data:
+      title: Washing machine finished
+      message: 'The washing machine has finished its cycle. {{ now().strftime(''%Y-%m-%d
+        %I:%M %p'') }}
+
+        '
+      data:
+        color: white
+        channel: LaundryWash
+        vibrationPattern: 100,500,100,500,100,500
+        importance: high
+        visibility: public
+        notification_icon: mdi:washing-machine
+        ttl: 0
+        priority: high
+        sticky: 'true'
+  mode: single
+- id: '1785705892310'
+  alias: Parcel Box Opened Notify - Rev 3
+  description: "Notifies both phones, with photos, when the parcel box is opened.
+    Rev 3 replaces /api/camera_proxy/<camera> with camera.snapshot taken at trigger
+    time, because the companion app only fetched the proxy URL when the notification
+    was rendered, so a slow push showed an empty doorstep. \n\nSnapshots go to /config/www/parcel_box/
+    (served unauthenticated from /local/, hence the randomised filenames) and accumulate,
+    so they need periodic housekeeping. Jinja range() is capped at 100000 in the HA
+    sandbox, so the random suffix uses range(10000, 99999)."
+  triggers:
+  - entity_id:
+    - binary_sensor.parcel_box_contact
+    from: 'off'
+    to: 'on'
+    trigger: state
+  conditions: []
+  actions:
+  - variables:
+      stamp: '{{ now().strftime(''%Y%m%d-%H%M%S'') }}-{{ range(10000, 99999) | random
+        }}'
+      file_1: /config/www/parcel_box/garage-{{ stamp }}.jpg
+      file_2: /config/www/parcel_box/p3224-{{ stamp }}.jpg
+      url_1: /local/parcel_box/garage-{{ stamp }}.jpg
+      url_2: /local/parcel_box/p3224-{{ stamp }}.jpg
+  - parallel:
+    - action: camera.snapshot
+      target:
+        entity_id: camera.garage_32_accc8e9a8378
+      data:
+        filename: '{{ file_1 }}'
+      continue_on_error: true
+    - action: camera.snapshot
+      target:
+        entity_id: camera.p3224_lve_0
+      data:
+        filename: '{{ file_2 }}'
+      continue_on_error: true
+  - parallel:
+    - action: notify.mobile_app_rich_mob_app
+      data:
+        title: Parcel Box
+        message: Parcel Box Opened
+        data:
+          image: '{{ url_1 }}'
+          color: green
+          channel: ParcelBox1
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: default
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:package-variant-closed
+    - action: notify.mobile_app_lucy_mob_app
+      data:
+        title: Parcel Box
+        message: Parcel Box Opened
+        data:
+          image: '{{ url_1 }}'
+          color: green
+          channel: ParcelBox1
+          vibrationPattern: 100,200,100,200,100,200,100,200
+          importance: default
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:package-variant-closed
+    - action: notify.mobile_app_rich_mob_app
+      data:
+        title: Parcel Box
+        message: Parcel Box Opened Photo 2
+        data:
+          image: '{{ url_2 }}'
+          color: green
+          channel: ParcelBox2
+          importance: default
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:package-variant-closed
+          sticky: 'true'
+    - action: notify.mobile_app_lucy_mob_app
+      data:
+        title: Parcel Box
+        message: Parcel Box Opened Photo 2
+        data:
+          image: '{{ url_2 }}'
+          color: green
+          channel: ParcelBox2
+          importance: default
+          timeout: 86400
+          visibility: public
+          notification_icon: mdi:package-variant-closed
+          sticky: 'true'
+  - data:
+      message: Parcel Box Opened
+    action: notify.google_assistant_sdk
   mode: single
