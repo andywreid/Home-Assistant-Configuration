@@ -83,7 +83,7 @@
 #   API (see the 'sensor:' homeassistant platform entries below). This
 #   replaces the previous approach of a Home Assistant automation writing to
 #   template number entities several times per minute.
-# - Active Power is throttled to 5s; the cosmetic registers to 30s.
+# - Active Power is throttled to 6s; the cosmetic registers to 30s.
 # - The ESP itself does not measure these values; it only serves them to the
 #   inverter.
 #
@@ -696,7 +696,7 @@ sensor:
     entity_id: sensor.inverter_demand_power
     internal: true
     filters:
-      - throttle: 5s
+      - throttle: 6s
     on_value:
       then:
         - lambda: |-
