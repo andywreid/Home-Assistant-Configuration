@@ -450,93 +450,6 @@
         '
       title: 'WARNING: UPS close to being depleted'
     action: notify.mobile_app_rich_mob_app
-- id: '1581123123827'
-  alias: Simulate Presence Lights - OLD
-  description: Automation Simulate Presence / Occupancy Simulation. Runs single and
-    if we get home it will turn off all the lights (cancel the run)
-  triggers:
-  - entity_id:
-    - person.richard
-    from: home
-    to:
-    trigger: state
-  - entity_id:
-    - person.lucy
-    from: home
-    to: not_home
-    trigger: state
-  - event: sunset
-    offset: +00:30:00
-    trigger: sun
-  - event_type: event_simulate_presence
-    trigger: event
-  conditions:
-  - condition: and
-    conditions:
-    - condition: state
-      entity_id: sun.sun
-      state: below_horizon
-    - before: '23:55:00'
-      condition: time
-    - condition: state
-      entity_id: input_boolean.simulate_presence_enable
-      state: 'on'
-    - condition: state
-      entity_id: person.lucy
-      state: not_home
-    - condition: state
-      entity_id: person.richard
-      state: not_home
-  actions:
-  - data_template:
-      entity_id: '{{ state_attr(''light.presence_simulation_lights_group'', ''entity_id'')
-        | random }}'
-    action: light.turn_on
-  - delay: 00:{{ (range(10, 30) | random) }}:00
-  - if:
-    - condition: or
-      conditions:
-      - condition: time
-        after: '11:50:00'
-      - condition: state
-        entity_id: person.lucy
-        state: home
-      - condition: state
-        entity_id: person.richard
-        state: home
-    then:
-    - data: {}
-      target:
-        entity_id: light.presence_simulation_lights_group
-      action: light.turn_off
-  - data_template:
-      entity_id: '{{ state_attr(''light.presence_simulation_lights_group'', ''entity_id'')
-        | random }}'
-    action: light.turn_on
-  - delay: 00:{{ (range(10, 30) | random) }}:00
-  - data_template:
-      entity_id: '{{ state_attr(''light.presence_simulation_lights_group'', ''entity_id'')
-        | random }}'
-    action: light.turn_off
-  - if:
-    - condition: or
-      conditions:
-      - condition: time
-        after: '11:50:00'
-        enabled: false
-      - condition: state
-        entity_id: person.lucy
-        state: home
-      - condition: state
-        entity_id: person.richard
-        state: home
-    then:
-    - data: {}
-      target:
-        entity_id: light.presence_simulation_lights_group
-      action: light.turn_off
-  - event: event_simulate_presence
-  mode: single
 - id: '1590103997253'
   alias: 'Server Getting Hot '
   description: ''
@@ -1626,76 +1539,6 @@
         notification_icon: mdi:water-alert-outline
     enabled: true
   mode: queued
-- id: '1694715667268'
-  alias: Parcel Box Opened Notify - Rev 2
-  description: Take photo first, rather than using camera_proxy, as camera_proxy only
-    takes the image when the notification is delivered, which may be later if signal
-    is poor.
-  triggers:
-  - entity_id:
-    - binary_sensor.parcel_box_contact
-    from: 'off'
-    to: 'on'
-    trigger: state
-  conditions: []
-  actions:
-  - data:
-      title: Parcel Box
-      message: Parcel Box Opened
-      data:
-        image: /api/camera_proxy/camera.garage_32_accc8e9a8378
-        color: green
-        channel: ParcelBox1
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: default
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:package-variant-closed
-    action: notify.mobile_app_rich_mob_app
-  - data:
-      title: Parcel Box
-      message: Parcel Box Opened
-      data:
-        image: /api/camera_proxy/camera.garage_32_accc8e9a8378
-        color: green
-        channel: ParcelBox1
-        vibrationPattern: 100,200,100,200,100,200,100,200
-        importance: default
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:package-variant-closed
-    action: notify.mobile_app_lucy_mob_app
-  - data:
-      title: Parcel Box
-      message: Parcel Box Opened Photo 2
-      data:
-        image: /api/camera_proxy/camera.p3224_lve_0
-        color: green
-        channel: ParcelBox2
-        importance: default
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:package-variant-closed
-        sticky: 'true'
-    action: notify.mobile_app_rich_mob_app
-  - data:
-      title: Parcel Box
-      message: Parcel Box Opened Photo 2
-      data:
-        image: /api/camera_proxy/camera.p3224_lve_0
-        color: green
-        channel: ParcelBox2
-        importance: default
-        timeout: 86400
-        visibility: public
-        notification_icon: mdi:package-variant-closed
-        sticky: 'true'
-    action: notify.mobile_app_lucy_mob_app
-  - data:
-      message: Parcel Box Opened
-    enabled: true
-    action: notify.google_assistant_sdk
-  mode: single
 - id: '1694727006658'
   alias: House Doorbell - External Notify
   description: Snapshots the front door camera at trigger time and sends that static
@@ -2571,25 +2414,6 @@
     device_id: 2852d68eacdcae952e6fd84251240afb
     domain: nut
   mode: single
-- id: '1715801236786'
-  alias: Tile Tracker Low Battery Alert
-  description: ''
-  trigger:
-  - platform: time
-    at: '11:00:00'
-  condition: []
-  action:
-  - choose:
-    - conditions:
-      - condition: state
-        entity_id: device_tracker.small_water_bottle
-        attribute: last_timestamp
-        state: timedelta(days=4)
-      - condition: template
-        value_template: ' {{ now() - state_attr(''device_tracker.cold_sore_cream'',
-          ''last_timestamp'') | as_datetime > timedelta(days=4) }}'
-      sequence: []
-  mode: single
 - id: '1720117742034'
   alias: Tea Brewing Timer
   description: ''
@@ -2634,57 +2458,32 @@
       minutes: 3
       seconds: 30
       milliseconds: 0
-  - alias: 'Send to targets separately, to avoid queuing delay '
-    parallel:
-    - data:
-        message: Tea timer, beep! beep!
-        target: Dining Room
-      enabled: true
-      action: notify.google_assistant_sdk
-    - data:
-        message: Tea timer, beep! beep!
-        target: Dining Room
-      enabled: true
-      action: notify.google_assistant_sdk
-    - data:
-        message: Tea timer, beep! beep! beep!
-        target: kitchen
-      enabled: true
-      action: notify.google_assistant_sdk
-    - data:
-        message: Tea timer!
-        target: office
-      enabled: true
-      action: notify.google_assistant_sdk
-    enabled: false
-  - parallel:
-    - repeat:
-        count: 1
-        sequence:
-        - device_id: 061e0dd32d43fd2355543b4f4db149ac
-          domain: light
-          entity_id: cf6ba794fa1a1a67815ff4de4a57bb2a
-          type: flash
-    - if:
-      - condition: trigger
-        id:
-        - 'Hold Up '
-      then: []
-      else:
-      - data:
-          target:
-          - living room
-          - kitchen
-          - dining room
-          - office
-          message: Tea timer. lovely cup of tea is ready for you to enjoy.
-        enabled: true
-        action: notify.google_assistant_sdk
+  - repeat:
+      count: 1
+      sequence:
+      - device_id: 061e0dd32d43fd2355543b4f4db149ac
+        domain: light
+        entity_id: cf6ba794fa1a1a67815ff4de4a57bb2a
+        type: flash
         continue_on_error: true
-      - data:
-          message: Tea timer, bing bong dong - bang!
-        enabled: true
-        action: notify.google_assistant_sdk
+    continue_on_error: true
+  - if:
+    - condition: trigger
+      id:
+      - 'Hold Up '
+    then: []
+    else:
+    - data:
+        target:
+        - living room
+        - kitchen
+        - dining room
+        - office
+        message: tea is ready. Lovely cup of tea is ready for you to enjoy.
+      enabled: true
+      action: notify.google_assistant_sdk
+      continue_on_error: true
+    continue_on_error: true
   mode: restart
 - id: '1720118905430'
   alias: Broadcast dinner almost ready
@@ -3297,10 +3096,6 @@
     data:
       entity_id:
       - sensor.solar_panels_current_net_power_consumption
-      - sensor.solar_panels_voltage_net_consumption_ct
-      - sensor.solar_panels_net_consumption_ct_current
-      - sensor.solar_panels_powerfactor_net_consumption_ct
-      - sensor.solar_panels_frequency_production_ct
   mode: single
 - id: '1755724844350'
   alias: Home Battery Smart Charging Octopus
