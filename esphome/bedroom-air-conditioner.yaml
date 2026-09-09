@@ -1,0 +1,226 @@
+##############################################################
+# Richard Huish 2026
+# ESPHome Configuration - Bedroom Air Conditioner (Midea UART)
+# Repository: https://github.com/genestealer/Home-Assistant-Configuration
+#
+# Description:
+# Native control of a Midea-protocol air conditioner over the appliance's
+# internal UART using a SMARTLIGHT SLWF-01pro Wi-Fi dongle, replacing the
+# vendor cloud dongle. No IR line-of-sight required and the AC reports its
+# real state back (mode, fan, swing, indoor/outdoor temperature, power).
+#
+# https://esphome.io/components/climate/midea/
+# https://smartlight.me/smart-home-devices/wifi-devices/wifi-dongle-air-conditioners-midea-idea-electrolux-for-home-assistant
+#
+# Includes shared configurations from the 'common' directory
+#
+# Features:
+# - Full climate entity (modes, fan modes, presets, swing) via UART.
+# - Capability auto-detection (autoconf) - the AC reports what it supports.
+# - Outdoor temperature, power usage and indoor humidity sensors (if supported).
+# - Beeper switch, display toggle and power toggle helpers.
+#
+# Hardware:
+# - SMARTLIGHT SLWF-01pro v2.1 (ESP8266 / ESP-12x) dongle
+# - Plugs into the AC's USB service port (5V, level shifting on-board)
+# - v2.1 is identified by its extra USB Type-C port (v1.1 has none and uses
+#   different UART pins, so do not reuse this config on a v1.1 board)
+#
+# WIRING / PINOUT (SLWF-01pro v2.1)
+# - GPIO12 (TX) -> AC RX  } AC protocol UART, 9600 baud, fixed by the dongle PCB
+# - GPIO14 (RX) <- AC TX  }
+# - GPIO13      -> "Follow me" pad, solder to the AC's IR receiver (TSOP) output
+#                  to gain the IR-only commands (FollowMe, Swing Step)
+# - GPIO1/GPIO3 -> onboard CH340 USB-serial (Type-C port)
+#
+# FLASHING:
+# - First flash over the Type-C port: hold the button while plugging in, then
+#   release once flashing starts. https://smlight.tech/flasher/#slwf01proV2
+#   (needs CH340 drivers). Afterwards use OTA.
+#
+# Vendor reference config:
+# https://github.com/smlight-tech/slwf-01pro-esphome/blob/main/slwf01pro_v2.1.yaml
+#
+##############################################################
+
+# Substitutions - Easily Configurable Parameters
+substitutions:
+  # Naming & Identification
+  name: bedroom-air-conditioner
+  friendly_name: Bedroom Air Conditioner
+  ui_comment: "Bedroom Air Conditioner Control"
+
+  # Network Configuration (Static IP)
+  ip: 192.168.2.61
+  gateway: 192.168.2.1
+  subnet: 255.255.255.0
+
+  # Debug Logging
+  log_level: warn
+
+  # Sensor Update Interval
+  sensor_update_interval: 1min
+  wifi_sensor_update_interval: 10min
+
+  # Midea UART (fixed by the SLWF-01pro v2.1 hardware)
+  uart_tx_pin: GPIO12
+  uart_rx_pin: GPIO14
+  uart_baud_rate: "9600"
+
+##############################################################
+# Board Configuration
+##############################################################
+# No status_led package: the v2.1 has no user-controllable onboard LED.
+esp8266:
+  board: esp12e
+
+##############################################################
+# Import Shared Code (Common Components)
+##############################################################
+packages:
+  device_base: !include common/device_base.yaml
+  wifi: !include common/device_base_wifi.yaml
+
+##############################################################
+# Logging
+##############################################################
+# Merged with common/device_base.yaml (which sets the level).
+# Serial logging off, as per the vendor config. Set to 115200 to debug over the
+# Type-C port (GPIO1/GPIO3 are free on v2.1); logs are on the API regardless.
+logger:
+  baud_rate: 9600 
+
+##############################################################
+# Hardware Configuration
+##############################################################
+
+##################################
+# UART to the Air Conditioner
+##################################
+uart:
+  id: ac_uart
+  tx_pin: ${uart_tx_pin}
+  rx_pin: ${uart_rx_pin}
+  baud_rate: ${uart_baud_rate}
+
+##################################
+# Midea Climate
+##################################
+climate:
+  - platform: midea
+    id: bedroom_ac
+    uart_id: ac_uart
+    name: None  # Uses the device friendly_name
+    icon: "mdi:air-conditioner"
+    period: 1s         # Minimum period between requests to the appliance
+    timeout: 2s        # Response timeout before retrying
+    num_attempts: 3    # Request attempts (1-5)
+    autoconf: true     # Query the appliance for its capabilities
+    beeper: true       # Beep on commands from Home Assistant
+    visual:
+      min_temperature: 17 °C
+      max_temperature: 30 °C
+      temperature_step: 0.5 °C
+
+    # The lists below are detected by autoconf. Only uncomment and tune them
+    # if autoconf fails (a "Failed to get 0xB5 capabilities report" warning in
+    # the logs), in which case also set autoconf: false.
+    # supported_modes:
+    #   - HEAT_COOL
+    #   - COOL
+    #   - HEAT
+    #   - DRY
+    #   - FAN_ONLY
+    # custom_fan_modes:
+    #   - SILENT
+    #   - TURBO
+    # supported_presets:
+    #   - ECO
+    #   - BOOST
+    #   - SLEEP
+    # custom_presets:
+    #   - FREEZE_PROTECTION
+    # supported_swing_modes:
+    #   - VERTICAL
+    #   - HORIZONTAL
+    #   - BOTH
+
+    outdoor_temperature:
+      name: "Outdoor Temperature"
+      device_class: temperature
+      state_class: measurement
+      accuracy_decimals: 1
+      filters:
+        # Reported as 0 °C after long compressor inactivity - ignore those.
+        - filter_out: 0.0
+
+
+##################################
+# Beeper Feedback
+##################################
+# The flag is only sent with the next control command, so toggling this alone
+# is silent - change the mode or setpoint afterwards to hear the difference.
+switch:
+  - platform: template
+    name: "Beeper"
+    icon: "mdi:volume-source"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON  # Matches the climate 'beeper: true' default
+    entity_category: "config"
+    turn_on_action:
+      midea_ac.beeper_on:
+    turn_off_action:
+      midea_ac.beeper_off:
+
+##################################
+# Extra Controls
+##################################
+button:
+  - platform: template
+    name: "Display Toggle"
+    icon: "mdi:theme-light-dark"
+    entity_category: "config"
+    on_press:
+      midea_ac.display_toggle:
+
+  - platform: template
+    name: "Power Toggle"
+    icon: "mdi:power"
+    on_press:
+      midea_ac.power_toggle:
+
+  - platform: template
+    name: "Swing Step"
+    icon: "mdi:tailwind"
+    on_press:
+      midea_ac.swing_step:
+
+##################################
+# IR Commands ("Follow me" pad)
+##################################
+# Display Toggle, Swing Step and FollowMe are IR-only unless the AC reports
+# light control over UART (Comfee units generally do not). They are sent from
+# the v2.1 "Follow me" pad on GPIO13, which must be soldered to the output of
+# the AC's IR receiver (TSOP) - without that link these commands do nothing.
+remote_transmitter:
+  pin: GPIO13
+  carrier_duty_percent: 100%  # 100% for direct TSOP output, 50% for an IR LED
+
+##################################
+# FollowMe (optional)
+##################################
+# Feeds the AC the bedroom room temperature instead of its own return-air
+# sensor. Needs the "Follow me" pad above to be wired up.
+#
+# sensor:
+#   - platform: homeassistant
+#     entity_id: sensor.bedroom_air_sensors_temperature
+#     internal: true
+#     filters:
+#       - throttle: 10s
+#       - heartbeat: 2min       # Maximum interval between updates
+#       - debounce: 1s
+#     on_value:
+#       midea_ac.follow_me:
+#         temperature: !lambda "return x;"
+#         beeper: false
