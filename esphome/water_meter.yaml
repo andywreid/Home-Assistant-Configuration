@@ -16,8 +16,8 @@ substitutions:
   status_led: GPIO0  # GPIO0 (ESP8266)
   status_led_inverted: "true"
 
-  # # Debug Logging
-  # log_level: WARN
+  # Debug Logging
+  log_level: DEBUG
 
   # Sensor Update Interval
   sensor_update_interval: 1min
@@ -129,7 +129,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/genestealer/everblu-meters-esp8266-improved
-      ref: main
+      ref: develop 
       path: ESPHOME-release
     components: [ everblu_meter ]
     refresh: 0s
@@ -160,8 +160,8 @@ esphome:
 
 
 everblu_meter:
-  - id: cold_water_meter
-    meter_code: 20-0257750-100
+  - id: water_meter_1
+    meter_code: "20-0257750-100"
     meter_type: water
     debug_cc1101: true
     spi_id: main_bus
@@ -175,8 +175,6 @@ everblu_meter:
       number: ${cc1101_gdo2}
       allow_other_uses: true
 
-    frequency: 433.782712      # Fine-tuned frequency
-    
     # rx_attenuation: 0     # Optional (v3.0.0+): LNA gain limit (0/6/12/18 dB). All meters share the
     #                       # CC1101 hardware, so set the same value on every entry.
     #                       # Only needed when *** NEAR-FIELD SATURATION DETECTED *** is logged.
@@ -184,27 +182,20 @@ everblu_meter:
     timezone_offset: ${tz_offset_min}
     read_hour: 11
     read_minute: 30
-    reading_schedule: Monday-Friday
 
     request_reading_button:
       name: "${meter_1_prefix} Read Meter Now"
       device_id: water_meter_device_1
+    frequency: 433.82
+    deep_scan_button:
+      name: "${meter_1_prefix} Deep Frequency Scan"
+      device_id: water_meter_device_1
+    reset_frequency_button:
+      name: "${meter_1_prefix} Reset Frequency Offset"
+      device_id: water_meter_device_1
     stop_reading_button:
       name: "${meter_1_prefix} Stop Reading"
       device_id: water_meter_device_1
-    # Frequency calibration is a property of the shared CC1101 radio, not the meter.
-    # Declare these buttons/sensors on ONE meter only (here, the first). They are
-    # global: any meter's reads/scans update this single set of entities.
-
-    deep_scan_button:
-      name: "Radio Deep Frequency Scan"
-    reset_frequency_button:
-      name: "Radio Reset Frequency Offset"
-      
-    # Prints a full wiring/radio diagnostic block to the log. Press this and attach the
-    # output when reporting a problem.
-    diagnostic_report_button:
-      name: "Diagnostic Report"
 
     volume:
       name: "${meter_1_prefix} Water Volume"
@@ -237,13 +228,15 @@ everblu_meter:
     failed_reads:
       name: "${meter_1_prefix} Failed Reads"
       device_id: water_meter_device_1
-    # Global (per-radio) calibration sensors - declared on this meter only.
     frequency_offset:
-      name: "Radio Frequency Offset"
+      name: "${meter_1_prefix} Frequency Offset"
+      device_id: water_meter_device_1
     tuned_frequency:
-      name: "Radio Tuned Frequency (MHz)"
+      name: "${meter_1_prefix} Tuned Frequency (MHz)"
+      device_id: water_meter_device_1
     frequency_estimate:
-      name: "Radio Frequency Estimate"
+      name: "${meter_1_prefix} Frequency Estimate"
+      device_id: water_meter_device_1
 
     meter_serial_sensor:
       name: "${meter_1_prefix} Meter Serial"
@@ -295,7 +288,7 @@ everblu_meter:
       name: "CC1101 Connected"        # device-level (shared radio) - stays on main node
 
   - id: water_meter_2
-    meter_code: 20-0259301-100
+    meter_code: "20-0259301-017"
     meter_type: water
     debug_cc1101: true
     spi_id: main_bus
@@ -304,7 +297,7 @@ everblu_meter:
       allow_other_uses: true
     gdo0_pin:
       number: ${cc1101_gdo0}
-      allow_other_uses: true
+      allow_other_uses: true  
     gdo2_pin:
       number: ${cc1101_gdo2}
       allow_other_uses: true
@@ -320,8 +313,13 @@ everblu_meter:
     stop_reading_button:
       name: "${meter_2_prefix} Stop Reading"
       device_id: water_meter_device_2
-    # Frequency calibration buttons/sensors are radio-global and declared on the
-    # first meter only (see cold_water_meter above); they act on the shared CC1101.
+    frequency: 433.82
+    deep_scan_button:
+      name: "${meter_2_prefix} Deep Frequency Scan"
+      device_id: water_meter_device_2
+    reset_frequency_button:
+      name: "${meter_2_prefix} Reset Frequency Offset"
+      device_id: water_meter_device_2
 
     volume:
       name: "${meter_2_prefix} Water Volume"
@@ -353,6 +351,15 @@ everblu_meter:
       device_id: water_meter_device_2
     failed_reads:
       name: "${meter_2_prefix} Failed Reads"
+      device_id: water_meter_device_2
+    frequency_offset:
+      name: "${meter_2_prefix} Frequency Offset"
+      device_id: water_meter_device_2
+    tuned_frequency:
+      name: "${meter_2_prefix} Tuned Frequency (MHz)"
+      device_id: water_meter_device_2
+    frequency_estimate:
+      name: "${meter_2_prefix} Frequency Estimate"
       device_id: water_meter_device_2
 
     meter_serial_sensor:
@@ -401,7 +408,7 @@ everblu_meter:
     # shared radio / firmware) and are declared on the first meter only above.
 
   - id: water_meter_3
-    meter_code: 20-0259298-022
+    meter_code: "20-0259298-022"
     meter_type: water
     debug_cc1101: true
     spi_id: main_bus
@@ -414,20 +421,24 @@ everblu_meter:
     gdo2_pin:
       number: ${cc1101_gdo2}
       allow_other_uses: true
-    # rx_attenuation: 0     # Must match the value set on meter 1 (shared CC1101 hardware)
     time_id: homeassistant_time
     timezone_offset: ${tz_offset_min}
     read_hour: 11
     read_minute: 50
+    frequency: 433.82
 
     request_reading_button:
       name: "${meter_3_prefix} Read Meter Now"
       device_id: water_meter_device_3
+    deep_scan_button:
+      name: "${meter_3_prefix} Deep Frequency Scan"
+      device_id: water_meter_device_3
+    reset_frequency_button:
+      name: "${meter_3_prefix} Reset Frequency Offset"
+      device_id: water_meter_device_3
     stop_reading_button:
       name: "${meter_3_prefix} Stop Reading"
       device_id: water_meter_device_3
-    # Frequency calibration buttons/sensors are radio-global and declared on the
-    # first meter only (see cold_water_meter above); they act on the shared CC1101.
 
     volume:
       name: "${meter_3_prefix} Water Volume"
@@ -459,6 +470,9 @@ everblu_meter:
       device_id: water_meter_device_3
     failed_reads:
       name: "${meter_3_prefix} Failed Reads"
+      device_id: water_meter_device_3
+    frequency_estimate:
+      name: "${meter_3_prefix} Frequency Estimate"
       device_id: water_meter_device_3
 
     meter_serial_sensor:
@@ -503,8 +517,6 @@ everblu_meter:
     active_reading:
       name: "${meter_3_prefix} Reading Active"
       device_id: water_meter_device_3
-    # CC1101 State, CC1101 Connected and Firmware Version are device-level (one
-    # shared radio / firmware) and are declared on the first meter only above.
 
 
 
