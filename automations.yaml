@@ -2385,7 +2385,6 @@
         metadata: {}
         data: {}
         target:
-          entity_id: light.fairy_lights
           device_id: e117af1a8759c13997886e55fd6f04c3
     - conditions:
       - condition: trigger
@@ -2396,7 +2395,6 @@
         metadata: {}
         data: {}
         target:
-          entity_id: light.fairy_lights
           device_id: e117af1a8759c13997886e55fd6f04c3
   mode: restart
 - id: '1714268450987'
@@ -2583,7 +2581,7 @@
       seconds: 0
       milliseconds: 0
   - data:
-      transition: 2300
+      transition: 10
     action: light.turn_off
     target:
       entity_id: light.garden_lights
@@ -3117,6 +3115,15 @@
     - Returns battery to ''Maximize Auto Consumption'' when the smart dispatch period
     ends
 
+
+    The xStorage has its own built-in slow charging schedule for the standard night
+    off-peak window (starts 23:30), so the off-peak sensor turning on at that time
+    must NOT force it into Manual Charge. Octopus allocates slots in half hour blocks,
+    so the latest useful one runs 23:00-23:30 and there is no point starting a Manual
+    Charge at or after 23:00 - the built-in schedule takes over shortly after anyway.
+    The Enphase ACB batteries have no such schedule, so they are always put to sleep
+    at 95-100% whenever off-peak starts.
+
     '
   triggers:
   - type: turned_on
@@ -3147,59 +3154,48 @@
         device_id: 3912e8bcd9d950c832ebfb154138ce98
         entity_id: 80aa09f400893520a7232726cae46102
         domain: binary_sensor
-      - condition: time
-        after: 05:40:00
-        before: '23:35:00'
       sequence:
-      - parallel:
+      - alias: xStorage Manual Charge - skipped from 23:00 onwards as the last useful
+          Octopus slot ends at 23:30 and the built-in night schedule then takes over
+        if:
+        - condition: time
+          after: 05:40:00
+          before: '23:00:00'
+        then:
         - sequence:
           - device_id: 7243064af443eaae599e1a98ef6c25f7
             domain: number
-            entity_id: 5ca05c1ef7722190111f5a5096e6a102
+            entity_id: 7346330391a77080b8c51204244bab19
             type: set_value
             value: 100
           - device_id: 7243064af443eaae599e1a98ef6c25f7
             domain: number
-            entity_id: 4a32fe12a0ba6be0cf7e9daa955662ad
+            entity_id: 9e013b6267f57d77c33e066e1d22a5b0
             type: set_value
             value: 95
           - device_id: 7243064af443eaae599e1a98ef6c25f7
             domain: number
-            entity_id: 2a30cb54d4928b25ce36b1089506b2bf
+            entity_id: 29fcd3398a551dd0574bc71aea4438ff
             type: set_value
-            value: 4
+            value: 3
           - device_id: 7243064af443eaae599e1a98ef6c25f7
             domain: select
-            entity_id: 8cb6de227f4654eeee815f12a7579efa
+            entity_id: 21ffd38d355c25562522dc095f2b7313
             type: select_option
-            option: Manual Charge
-        - sequence:
-          - action: enphase_envoy_raw_data.send_data
-            data:
-              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-              endpoint: /admin/lib/acb_config.json
-              method: PUT
-              risk_acknowledged: true
-              test_mode: false
-              data:
-                acb_sleep:
-                - serial_num: '122047098091'
-                  sleep_min_soc: 95
-                  sleep_max_soc: 100
-            alias: 122047098091 Charge
-          - action: enphase_envoy_raw_data.send_data
-            data:
-              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-              endpoint: /admin/lib/acb_config.json
-              method: PUT
-              risk_acknowledged: true
-              test_mode: false
-              data:
-                acb_sleep:
-                - serial_num: '121917000087'
-                  sleep_min_soc: 95
-                  sleep_max_soc: 100
-            alias: 121917000087 Charge
+            option: manual_charge
+          continue_on_error: true
+      - alias: Enphase ACB Charge - always runs when off-peak starts
+        sequence:
+        - action: select.select_option
+          metadata: {}
+          target:
+            entity_id: select.garage_acb_battery_sleep_soc_target
+          data:
+            option: 95-100
+        - action: button.press
+          metadata: {}
+          target:
+            entity_id: button.garage_acb_sleep
     - conditions:
       - type: is_off
         condition: device
@@ -3207,41 +3203,23 @@
         entity_id: 80aa09f400893520a7232726cae46102
         domain: binary_sensor
       sequence:
-      - parallel:
-        - sequence:
-          - device_id: 7243064af443eaae599e1a98ef6c25f7
-            domain: number
-            entity_id: c197851bac0b7f5104996b27dd7a1348
-            type: set_value
-            value: 12
-          - device_id: 7243064af443eaae599e1a98ef6c25f7
-            domain: select
-            entity_id: 8cb6de227f4654eeee815f12a7579efa
-            type: select_option
-            option: Maximize Auto Consumption
-        - sequence:
-          - action: enphase_envoy_raw_data.send_data
-            data:
-              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-              endpoint: /admin/lib/acb_config.json
-              method: DELETE
-              risk_acknowledged: true
-              test_mode: false
-              data:
-                acb_sleep:
-                - serial_num: '122047098091'
-            alias: 122047098091 Discharge
-          - action: enphase_envoy_raw_data.send_data
-            data:
-              config_entry_id: 01KNPGAK95DTK3950B33FG5JE1
-              endpoint: /admin/lib/acb_config.json
-              method: DELETE
-              risk_acknowledged: true
-              test_mode: false
-              data:
-                acb_sleep:
-                - serial_num: '121917000087'
-            alias: 121917000087 Discharge
+      - sequence:
+        - device_id: 7243064af443eaae599e1a98ef6c25f7
+          domain: number
+          entity_id: 7a0f09fc8bf4e63c9f78eaea0b9363b3
+          type: set_value
+          value: 12
+        - device_id: 7243064af443eaae599e1a98ef6c25f7
+          domain: select
+          entity_id: 21ffd38d355c25562522dc095f2b7313
+          type: select_option
+          option: maximize_auto_consumption
+        continue_on_error: true
+      - action: button.press
+        metadata: {}
+        target:
+          entity_id: button.garage_acb_wake
+        data: {}
   mode: restart
 - id: '1758208938977'
   alias: Octopus Energy - Auto Set Peak/Off-Peak Tariff
@@ -4215,8 +4193,12 @@
 
 
     The branches are decided purely from the current state of charge rather than from
-    trigger IDs, so Run Actions from the GUI behaves identically to an automatic run.
-    If the battery is between 30% and 80% nothing happens.
+    trigger IDs. If the battery is between 30% and 80% nothing happens.
+
+
+    A manual run (Run Actions in the GUI, or the automation.trigger action) always
+    takes the second branch regardless of the state of charge, so it can be used to
+    force a 100% charge target with a target time 2 hours ahead on demand.
 
 
     The only template in this automation is the target time, which has to be calculated
@@ -4259,34 +4241,44 @@
     condition: time
     after: 05:30:00
     before: '23:30:00'
+  variables:
+    manual_run: '{{ trigger is not defined or trigger.platform is none }}'
   actions:
   - alias: Decide the charge target from the current state of charge
-    note: Both branches test the live sensor value rather than a trigger ID, so a
-      manual Run Actions behaves the same as an automatic run. Between 30% and 80%
-      neither branch matches and nothing is changed.
+    note: Both branches test the live sensor value rather than a trigger ID, except
+      that a manual run is forced down the second branch. Between 30% and 80% neither
+      branch matches and nothing is changed.
     choose:
     - alias: Battery full enough - stop requesting off-peak slots
       note: Dropping the charge target to 30% tells Octopus no further charging is
         needed, so it stops allocating bonus off-peak slots until the battery is drawn
-        back down.
+        back down. Skipped on a manual run so that Run Actions always requests a charge.
       conditions:
       - condition: numeric_state
         entity_id: sensor.eaton_xstorage_home_battery_state_of_charge
         above: 79.9
+      - condition: template
+        value_template: '{{ not (manual_run | bool(false)) }}'
       sequence:
       - alias: Set Intelligent Charge Target to 30%
         action: number.set_value
         target:
-          entity_id: number.octopus_energy_00000000_0002_4000_8020_0000001117b0_intelligent_charge_target
+          entity_id: number.octopus_energy_00000000_0002_4000_8020_00000011db21_intelligent_charge_target
         data:
           value: 30
-    - alias: Battery low - request a full charge within the next 2 hours
+    - alias: Battery low or manual run - request a full charge within the next 2 hours
       note: Setting a near-term target time with a 100% target is what makes Octopus
-        allocate extra off-peak slots outside the standard window.
+        allocate extra off-peak slots outside the standard window. A manual run always
+        matches here so the charge can be forced on demand.
       conditions:
-      - condition: numeric_state
-        entity_id: sensor.eaton_xstorage_home_battery_state_of_charge
-        below: 30.1
+      - condition: or
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.eaton_xstorage_home_battery_state_of_charge
+          below: 30.1
+        - alias: Automation was run manually
+          condition: template
+          value_template: '{{ manual_run | bool(false) }}'
       sequence:
       - alias: Set Intelligent Target Time to 2 hours ahead
         note: Octopus only accepts half-hour slots, so the time is rounded down to
@@ -4295,7 +4287,7 @@
           because the select needs a literal time string that only exists at runtime.
         action: select.select_option
         target:
-          entity_id: select.octopus_energy_00000000_0002_4000_8020_0000001117b0_intelligent_target_time
+          entity_id: select.octopus_energy_00000000_0002_4000_8020_00000011db21_intelligent_target_time
         data:
           option: '{% set opts = state_attr(''select.octopus_energy_00000000_0002_4000_8020_0000001117b0_intelligent_target_time'',
             ''options'') or [] %} {% set t = now() + timedelta(hours=2) %} {% set
@@ -4309,8 +4301,104 @@
       - alias: Set Intelligent Charge Target to 100%
         action: number.set_value
         target:
-          entity_id: number.octopus_energy_00000000_0002_4000_8020_0000001117b0_intelligent_charge_target
+          entity_id: number.octopus_energy_00000000_0002_4000_8020_00000011db21_intelligent_charge_target
         data:
           value: 100
   mode: single
   max_exceeded: silent
+- id: '1787873367801'
+  alias: XStorage Battery - Overnight Two-Stage Charge
+  description: 'Two-stage overnight charge for the Eaton xStorage. Stage 1 at midnight:
+    charge to 80% at 40% inverter power for 2 hours. Stage 2 at 02:00: continue to
+    95%, still at 40% power. At 05:30 the battery is returned to Maximize Auto Consumption.
+    Charge duration is a whole-hour value (1-12), so stage 2 is given 4 hours and
+    the 05:30 trigger is what actually ends the charge. Charge power is a percentage
+    of the inverter rating, not watts.'
+  triggers:
+  - trigger: time
+    at: 00:00:00
+    id: stage_1
+  - trigger: time
+    at: 02:00:00
+    id: stage_2
+  - trigger: time
+    at: 05:30:00
+    id: finish
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id:
+        - stage_1
+      sequence:
+      - alias: Charge to 80% at 40% power for 2 hours
+        sequence:
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_charge_power
+          data:
+            value: 40
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_charge_target_soc
+          data:
+            value: 80
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_charge_duration
+          data:
+            value: 2
+        - action: select.select_option
+          target:
+            entity_id: select.eaton_xstorage_home_current_operation_mode
+          data:
+            option: manual_charge
+        continue_on_error: true
+    - conditions:
+      - condition: trigger
+        id:
+        - stage_2
+      sequence:
+      - alias: Continue to 95% until the 05:30 trigger stops it
+        sequence:
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_charge_power
+          data:
+            value: 40
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_charge_target_soc
+          data:
+            value: 95
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_charge_duration
+          data:
+            value: 4
+        - action: select.select_option
+          target:
+            entity_id: select.eaton_xstorage_home_current_operation_mode
+          data:
+            option: manual_charge
+        continue_on_error: true
+    - conditions:
+      - condition: trigger
+        id:
+        - finish
+      sequence:
+      - alias: Back to normal operation
+        sequence:
+        - action: number.set_value
+          target:
+            entity_id: number.eaton_xstorage_home_run_duration
+          data:
+            value: 12
+        - action: select.select_option
+          target:
+            entity_id: select.eaton_xstorage_home_current_operation_mode
+          data:
+            option: maximize_auto_consumption
+        continue_on_error: true
+  mode: single
